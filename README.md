@@ -39,6 +39,14 @@ python3 -m venv .venv
 pip install -e ".[dev]"
 ```
 
+If you are installing from a local checkout in a restricted network
+environment, disable build isolation and install dependencies yourself first:
+
+```bash
+pip install numpy Pillow pydantic
+pip install --no-build-isolation --no-deps -e .
+```
+
 Check the runtime:
 
 ```bash
