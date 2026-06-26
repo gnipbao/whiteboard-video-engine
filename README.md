@@ -1,58 +1,52 @@
 <p align="center">
-  <img src="docs/assets/hero.png" alt="Whiteboard Video Engine" width="960">
+  <img src="docs/assets/hero.png" alt="白板手绘视频引擎" width="960">
 </p>
 
-# Whiteboard Video Engine
+# 白板手绘视频引擎
 
-[中文](README.zh-CN.md)
+[English](README.en.md)
 
-<p>
-  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Interface CLI" src="https://img.shields.io/badge/interface-CLI-111827">
-</p>
+一个本地优先的白板手绘视频引擎，可将 SVG、线稿图、插画和照片转换为逐笔绘制的 MP4 视频。
 
-Local-first whiteboard animation engine for turning SVGs, line-art images, illustrations, and photos into stroke-by-stroke MP4 videos.
+本仓库专注于底层渲染能力：语义线稿输入、笔画追踪、路径排序、手势跟随和轮廓感上色。Codex Skill 独立维护在 [gnipbao/codex-whiteboard-video-skill](https://github.com/gnipbao/codex-whiteboard-video-skill)。
 
-The engine focuses on the rendering layer: semantic line-art input, stroke tracing, path ordering, hand cursor following, and contour-aware color fill. The companion Codex Skill is published separately at [gnipbao/codex-whiteboard-video-skill](https://github.com/gnipbao/codex-whiteboard-video-skill).
+## 核心能力
 
-## Highlights
+- 支持 SVG 和栅格线稿逐笔绘制。
+- 支持本地神经网络线稿提取，适配照片、插画和动漫图。
+- 支持骨架追踪、路径平滑和短线合并。
+- 内置固定角度手势：`asian`、`black`、`children`、`white`。
+- 支持 `--draw-text` 将短标题转换为手写路径。
+- 支持基于原图的轮廓感上色。
+- CLI 优先，方便脚本化、自动化和 Codex 集成。
 
-- Stroke-by-stroke rendering for SVG and raster line art.
-- Local neural line-art providers for photos and illustrations.
-- Skeleton tracing, path smoothing, and short-stroke merging.
-- Built-in fixed-orientation hand cursors: `asian`, `black`, `children`, `white`.
-- Hand-drawn text support with `--draw-text`.
-- Contour-aware color fill from the original image.
-- CLI-first design for scripting, automation, and Codex integration.
-
-## Demo
+## 效果演示
 
 <table>
   <tr>
     <td width="50%">
-      <strong>Input</strong><br>
-      <img src="examples/cases/sports-illustration-anime2sketch/input.jpg" alt="Sports illustration input" width="360">
+      <strong>输入图</strong><br>
+      <img src="examples/cases/sports-illustration-anime2sketch/input.jpg" alt="输入插画" width="360">
     </td>
     <td width="50%">
-      <strong>Output Preview</strong><br>
+      <strong>输出预览</strong><br>
       <a href="examples/cases/sports-illustration-anime2sketch/output.mp4">
-        <img src="examples/cases/sports-illustration-anime2sketch/output-preview.gif" alt="Whiteboard animation output preview" width="360">
+        <img src="examples/cases/sports-illustration-anime2sketch/output-preview.gif" alt="白板动画预览" width="360">
       </a><br>
-      <a href="examples/cases/sports-illustration-anime2sketch/output.mp4">Open MP4</a>
+      <a href="examples/cases/sports-illustration-anime2sketch/output.mp4">查看 MP4</a>
     </td>
   </tr>
 </table>
 
-More examples can be added under `examples/cases/<case-name>/`.
+后续案例可继续放入 `examples/cases/<case-name>/`。
 
-## Installation
+## 安装
 
 ```bash
 python3 -m pip install "git+https://github.com/gnipbao/whiteboard-video-engine.git"
 ```
 
-For local development:
+本地开发：
 
 ```bash
 git clone https://github.com/gnipbao/whiteboard-video-engine.git
@@ -62,15 +56,15 @@ python3 -m venv .venv
 pip install -e ".[dev]"
 ```
 
-Check the runtime:
+检查环境：
 
 ```bash
 whiteboard doctor
 ```
 
-## Quick Start
+## 快速开始
 
-Render a photo or illustration:
+渲染照片或插画：
 
 ```bash
 whiteboard render-photo input.jpg \
@@ -83,7 +77,7 @@ whiteboard render-photo input.jpg \
   --color-fill contour-wipe
 ```
 
-Render an existing SVG or line-art image:
+渲染已有 SVG 或线稿图：
 
 ```bash
 whiteboard render-image lineart.png \
@@ -94,7 +88,7 @@ whiteboard render-image lineart.png \
   --fps 30
 ```
 
-Reproduce the included case:
+复现内置案例：
 
 ```bash
 whiteboard render-photo examples/cases/sports-illustration-anime2sketch/input.jpg \
@@ -108,7 +102,7 @@ whiteboard render-photo examples/cases/sports-illustration-anime2sketch/input.jp
   --color-fill contour-wipe
 ```
 
-## CLI
+## 命令行
 
 ```bash
 whiteboard extract-lineart image.jpg -o lineart.png --provider auto
@@ -119,19 +113,19 @@ whiteboard list-hands
 whiteboard doctor
 ```
 
-Common options:
+常用参数：
 
 - `--stroke-detail balanced|rich|max`
 - `--hand asian|black|children|white|procedural|none`
-- `--draw-text "Title"`
+- `--draw-text "标题"`
 - `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
 - `--lineart-provider auto|informative|anime2sketch`
 
-## Line-Art Models
+## 线稿模型
 
-`render-photo` and `extract-lineart` discover local models from the current working directory. Put model code, weights, and wrapper scripts in the project folder where you run `whiteboard`.
+`render-photo` 和 `extract-lineart` 会从当前运行命令的项目目录自动发现本地模型。模型代码、权重和 wrapper 脚本建议放在同一个项目目录的 `tools/` 下。
 
-Recommended layout:
+推荐目录结构：
 
 ```text
 my-whiteboard-project/
@@ -142,63 +136,72 @@ my-whiteboard-project/
     lineart/
       run_informative_drawings.py
       run_anime2sketch.py
-    informative-drawings/
+    informative-drawings/              # 必须是完整 clone 的上游项目目录
+      test.py
+      model.py
+      data.py
+      util/
       checkpoints/
         model/
           anime_style/
             netG_A_latest.pth
           contour_style/
-            netG_A_latest.pth        # optional
+            netG_A_latest.pth        # 可选
           opensketch_style/
-            netG_A_latest.pth        # optional
-    Anime2Sketch/
+            netG_A_latest.pth        # 可选
+    Anime2Sketch/                      # 必须是完整 clone 的上游项目目录
+      model.py
+      data.py
+      utils.py
       weights/
         netG.pth
-        improved.bin                 # optional; preferred when available
+        improved.bin                 # 可选，有则优先使用
 ```
 
-Minimum valid setups:
+注意：`tools/informative-drawings/` 和 `tools/Anime2Sketch/` 不是只放权重的空目录，而是需要完整下载对应上游仓库。wrapper 会 `import` 这些仓库里的 Python 模块；如果只放 `*.pth` / `*.bin`，模型无法运行。
 
-- Informative Drawings: `tools/lineart/run_informative_drawings.py` plus `tools/informative-drawings/checkpoints/model/anime_style/netG_A_latest.pth`.
-- Anime2Sketch: `tools/lineart/run_anime2sketch.py` plus `tools/Anime2Sketch/weights/netG.pth` or `tools/Anime2Sketch/weights/improved.bin`.
+最小可用目录：
 
-If models live elsewhere, set explicit commands:
+- Informative Drawings：需要 `tools/lineart/run_informative_drawings.py` 和 `tools/informative-drawings/checkpoints/model/anime_style/netG_A_latest.pth`。
+- Anime2Sketch：需要 `tools/lineart/run_anime2sketch.py` 和 `tools/Anime2Sketch/weights/netG.pth` 或 `tools/Anime2Sketch/weights/improved.bin`。
+
+如果模型放在其他位置，可以显式配置命令：
 
 ```bash
 export WHITEBOARD_INFORMATIVE_DRAWINGS_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_informative_drawings.py {input} {output}"
 export WHITEBOARD_ANIME2SKETCH_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_anime2sketch.py {input} {output}"
 ```
 
-Supported providers:
+支持的线稿模型：
 
-- [Informative Drawings](https://github.com/carolineec/informative-drawings): recommended default for photos and semantic line art.
-- [Anime2Sketch](https://github.com/Mukosame/Anime2Sketch): recommended for anime, manga, and clean illustration inputs.
+- [Informative Drawings](https://github.com/carolineec/informative-drawings)：适合照片和语义线稿。
+- [Anime2Sketch](https://github.com/Mukosame/Anime2Sketch)：适合动漫、漫画和白底插画。
 
-See [docs/MODELS.md](docs/MODELS.md) for model paths, environment variables, and wrapper commands.
+模型路径、环境变量和 wrapper 命令见 [docs/MODELS.md](docs/MODELS.md)。
 
-## Architecture
+## 架构
 
 ```text
-source image / SVG
-  -> local line-art provider
-  -> raster skeleton / SVG path parsing
-  -> stroke ordering and path smoothing
-  -> hand-following renderer
-  -> contour-aware color fill
-  -> MP4 via FFmpeg
+原图 / SVG
+  -> 本地线稿模型
+  -> 骨架提取 / SVG 路径解析
+  -> 笔画排序与路径平滑
+  -> 手势跟随渲染
+  -> 轮廓感上色
+  -> FFmpeg 输出 MP4
 ```
 
-Core dependencies:
+核心依赖：
 
-- Python, Pillow, NumPy, Pydantic
+- Python、Pillow、NumPy、Pydantic
 - FFmpeg
-- Optional PyTorch stack for local line-art providers
+- 可选 PyTorch 线稿模型栈
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+架构细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## Codex Skill
 
-Install the companion Skill after installing this engine:
+安装引擎后，可继续安装配套 Skill：
 
 ```bash
 mkdir -p ~/.codex/skills
@@ -206,15 +209,15 @@ git clone https://github.com/gnipbao/codex-whiteboard-video-skill.git \
   ~/.codex/skills/whiteboard-video
 ```
 
-The Skill repository only contains Codex instructions and a wrapper script. This engine remains the source of truth for rendering behavior.
+Skill 仓库只包含 Codex 指令和 wrapper 脚本，渲染能力以本仓库为准。
 
-## Case Gallery
+## 案例库
 
-| Case | Provider | Notes |
+| 案例 | 线稿模型 | 说明 |
 | --- | --- | --- |
-| `sports-illustration-anime2sketch` | Anime2Sketch | White-background illustration, rich strokes, contour color fill |
+| `sports-illustration-anime2sketch` | Anime2Sketch | 白底插画、丰富笔画、轮廓感上色 |
 
-Future cases should follow:
+新增案例建议使用：
 
 ```text
 examples/cases/<case-name>/
@@ -224,12 +227,12 @@ examples/cases/<case-name>/
   output.mp4
 ```
 
-## Repository Policy
+## 仓库边界
 
-Do not commit model repositories, model weights, virtualenvs, generated work directories, or user uploads without redistribution permission.
+不要提交模型仓库、模型权重、虚拟环境、生成过程目录，或没有分发授权的用户上传素材。
 
-Small curated demos belong under `examples/cases/`.
+少量精选演示素材可放在 `examples/cases/`。
 
-## License
+## 许可证
 
-MIT. Upstream model code and weights keep their own licenses.
+MIT。上游模型代码和权重遵循各自许可证。

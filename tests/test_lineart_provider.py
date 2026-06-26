@@ -63,7 +63,7 @@ def test_anime2sketch_cleanup_removes_faint_fragments_and_darkens_lines(tmp_path
 
     result = Image.open(path).convert("L")
     assert result.getpixel((40, 32)) == 0
-    assert result.getpixel((40, 31)) == 0
+    assert result.getpixel((40, 31)) == 255
     assert result.getpixel((12, 12)) == 255
     assert result.getpixel((42, 8)) == 255
 

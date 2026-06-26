@@ -13,7 +13,11 @@ my-whiteboard-project/
     lineart/
       run_informative_drawings.py
       run_anime2sketch.py
-    informative-drawings/
+    informative-drawings/              # full upstream repository clone required
+      test.py
+      model.py
+      data.py
+      util/
       checkpoints/
         model/
           anime_style/
@@ -22,13 +26,18 @@ my-whiteboard-project/
             netG_A_latest.pth        # optional
           opensketch_style/
             netG_A_latest.pth        # optional
-    Anime2Sketch/
+    Anime2Sketch/                      # full upstream repository clone required
+      model.py
+      data.py
+      utils.py
       weights/
         netG.pth
         improved.bin                 # optional; preferred when available
 ```
 
 `tools/lineart/*.py` are the wrapper scripts from this repository. Model repositories and weights are downloaded from upstream projects.
+
+`tools/informative-drawings/` and `tools/Anime2Sketch/` must be complete upstream project checkouts, not empty folders that only contain weights. The wrapper scripts import modules from those repositories at runtime; keeping only `*.pth` / `*.bin` files will fail.
 
 ## Runtime Environment
 

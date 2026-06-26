@@ -4,9 +4,11 @@ from pathlib import Path
 from PIL import Image
 
 from whiteboard_skill.whiteboard import (
+    SKETCH_INK_COLOR,
     _color_fill_frame,
     _complete_line_art_canvas,
     _estimate_line_art_width,
+    _line_art_ink_mask,
     _load_source_image_canvas,
     _prepare_timeline,
     _reveal_line_art_canvas,
@@ -104,7 +106,8 @@ def test_complete_line_art_canvas_restores_missing_ink():
 
     completed = _complete_line_art_canvas(canvas, line_art)
 
-    assert completed.getpixel((10, 10)) == (18, 18, 18)
+    pixel = completed.getpixel((10, 10))
+    assert all(SKETCH_INK_COLOR[idx] <= pixel[idx] < 255 for idx in range(3))
 
 
 def test_complete_line_art_canvas_can_blend_missing_ink():
@@ -138,7 +141,8 @@ def test_reveal_line_art_canvas_uses_reveal_mask():
 
     frame = _reveal_line_art_canvas(canvas, line_art, reveal)
 
-    assert frame.getpixel((5, 5)) == (18, 18, 18)
+    pixel = frame.getpixel((5, 5))
+    assert all(SKETCH_INK_COLOR[idx] <= pixel[idx] < 255 for idx in range(3))
     assert frame.getpixel((15, 15)) == (255, 255, 255)
 
 
@@ -149,6 +153,19 @@ def test_estimate_line_art_width_from_ink_area():
             line_art.putpixel((x, y), (0, 0, 0))
 
     assert _estimate_line_art_width(line_art) >= 3
+
+
+def test_line_art_ink_mask_softens_thick_source_lines():
+    line_art = Image.new("RGB", (40, 40), "white")
+    for y in range(18, 23):
+        for x in range(5, 35):
+            line_art.putpixel((x, y), (0, 0, 0))
+
+    mask = _line_art_ink_mask(line_art, (40, 40))
+
+    assert mask.getpixel((20, 20)) == 255
+    assert 0 < mask.getpixel((20, 19)) < 255
+    assert mask.getpixel((20, 18)) == 0
 
 
 def test_text_to_strokes_generates_drawable_paths():

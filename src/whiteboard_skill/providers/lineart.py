@@ -240,7 +240,7 @@ def _lineart_cleanup_params(provider_name: str) -> dict[str, float | int] | None
     normalized = provider_name.lower()
     presets: dict[str, dict[str, float | int]] = {
         "soft": {"threshold": 235, "min_area_ratio": 0.007, "min_span_ratio": 0.006, "dilation": 0},
-        "balanced": {"threshold": 224, "min_area_ratio": 0.011, "min_span_ratio": 0.008, "dilation": 1},
+        "balanced": {"threshold": 224, "min_area_ratio": 0.011, "min_span_ratio": 0.008, "dilation": 0},
         "strong": {"threshold": 216, "min_area_ratio": 0.018, "min_span_ratio": 0.012, "dilation": 1},
     }
     if mode == "auto":

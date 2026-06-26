@@ -23,6 +23,8 @@ HAND_ANCHORS: dict[str, tuple[float, float]] = {
     "children": (0.16, 0.15),
     "white": (0.04, 0.35),
 }
+SKETCH_INK_COLOR = (64, 60, 62)
+SKETCH_INK_OPACITY = 0.76
 
 
 @dataclass(frozen=True)
@@ -132,11 +134,47 @@ def _line_art_canvas(image_path: Path, resolution: tuple[int, int]) -> Image.Ima
 DEFAULT_LINE_ART_SNAP_THRESHOLD = 170
 
 
+def _dilate_bool_mask(mask: np.ndarray, radius: int = 1) -> np.ndarray:
+    if radius <= 0 or mask.size == 0:
+        return mask.copy()
+    h, w = mask.shape
+    padded = np.pad(mask, radius, mode="constant", constant_values=False)
+    out = np.zeros_like(mask, dtype=bool)
+    span = radius * 2 + 1
+    for dy in range(span):
+        for dx in range(span):
+            out |= padded[dy : dy + h, dx : dx + w]
+    return out
+
+
 def _line_art_ink_mask(line_art: Image.Image, size: tuple[int, int], threshold: int = DEFAULT_LINE_ART_SNAP_THRESHOLD) -> Image.Image:
     source = line_art.convert("RGB")
     if source.size != size:
         source = source.resize(size, Image.Resampling.LANCZOS)
-    return source.convert("L").point(lambda px: 255 if px < threshold else 0)
+    gray = np.asarray(source.convert("L"), dtype=np.uint8)
+    raw_mask = gray < threshold
+    if not np.any(raw_mask):
+        return Image.new("L", size, 0)
+
+    skel = zhang_suen_skeleton(raw_mask)
+    skeleton_pixels = int(np.count_nonzero(skel))
+    if skeleton_pixels <= 0:
+        return Image.fromarray(raw_mask.astype(np.uint8) * 255, mode="L")
+
+    estimated_width = float(np.count_nonzero(raw_mask)) / skeleton_pixels
+    if estimated_width <= 2.2:
+        return Image.fromarray(raw_mask.astype(np.uint8) * 255, mode="L")
+
+    halo = _dilate_bool_mask(skel, radius=1)
+    soft_mask = np.zeros_like(gray, dtype=np.uint8)
+    soft_mask[halo] = 110
+    soft_mask[skel] = 255
+    return Image.fromarray(soft_mask, mode="L")
+
+
+def _line_art_binary_mask(line_art: Image.Image, threshold: int = DEFAULT_LINE_ART_SNAP_THRESHOLD) -> np.ndarray:
+    gray = np.asarray(line_art.convert("L"), dtype=np.uint8)
+    return gray < threshold
 
 
 def _estimate_line_art_width(line_art: Image.Image | None, threshold: int = DEFAULT_LINE_ART_SNAP_THRESHOLD) -> int:
@@ -144,8 +182,7 @@ def _estimate_line_art_width(line_art: Image.Image | None, threshold: int = DEFA
 
     if line_art is None:
         return 2
-    gray = np.asarray(line_art.convert("L"), dtype=np.uint8)
-    mask = gray < threshold
+    mask = _line_art_binary_mask(line_art, threshold=threshold)
     if not np.any(mask):
         return 2
     skel = zhang_suen_skeleton(mask)
@@ -175,8 +212,9 @@ def _complete_line_art_canvas(
     ink_mask = _line_art_ink_mask(line_art, base.size, threshold=threshold)
     if alpha < 1.0:
         ink_mask = ink_mask.point(lambda px: int(px * max(0.0, min(1.0, alpha))))
-    black = Image.new("RGB", base.size, (18, 18, 18))
-    base.paste(black, mask=ink_mask)
+    ink_mask = ink_mask.point(lambda px: int(px * SKETCH_INK_OPACITY))
+    ink = Image.new("RGB", base.size, SKETCH_INK_COLOR)
+    base.paste(ink, mask=ink_mask)
     return base
 
 
@@ -190,8 +228,9 @@ def _reveal_line_art_canvas(
         return canvas.copy()
     base = canvas.convert("RGB")
     ink_mask = _line_art_ink_mask(line_art, base.size, threshold=threshold)
-    black = Image.new("RGB", base.size, (18, 18, 18))
-    base.paste(black, mask=_combine_masks(ink_mask, reveal_mask))
+    reveal = _combine_masks(ink_mask, reveal_mask).point(lambda px: int(px * SKETCH_INK_OPACITY))
+    ink = Image.new("RGB", base.size, SKETCH_INK_COLOR)
+    base.paste(ink, mask=reveal)
     return base
 
 
@@ -603,7 +642,7 @@ def render_scene(
     fps: int = 60,
     resolution: tuple[int, int] = (1920, 1080),
     tail_color_sec: float = 2.0,
-    line_thickness: int = 2,
+    line_thickness: int = 1,
     show_cursor: bool = True,
     source_image: Image.Image | None = None,
     hand_style: str | Path = "procedural",
@@ -627,8 +666,9 @@ def render_scene(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     source = source_image.convert("RGB").resize(resolution) if source_image else load_on_canvas(image_path, resolution)
     aa_scale = 2 if max(resolution) <= 1280 else 1
-    effective_line_thickness = max(line_thickness, _estimate_line_art_width(complete_line_art, threshold=line_art_snap_threshold))
-    reveal_width = max(effective_line_thickness * 3 + 2, 9)
+    estimated_line_width = _estimate_line_art_width(complete_line_art, threshold=line_art_snap_threshold)
+    effective_line_thickness = max(1, int(line_thickness))
+    reveal_width = max(effective_line_thickness * 3 + 2, int(round(estimated_line_width * 2.2)), 8)
     canvas = Image.new("RGB", (resolution[0] * aa_scale, resolution[1] * aa_scale), "white")
     draw = ImageDraw.Draw(canvas)
     reveal_mask = Image.new("L", resolution, 0) if complete_line_art is not None and line_art_snap else None
@@ -732,7 +772,7 @@ def render_image(
     draw_text_position: str = "bottom",
     line_art_snap: bool = True,
     line_art_snap_threshold: int = DEFAULT_LINE_ART_SNAP_THRESHOLD,
-    line_thickness: int = 2,
+    line_thickness: int = 1,
     stroke_detail: str = "rich",
 ) -> None:
     """Extract strokes from one image and render a scene MP4."""

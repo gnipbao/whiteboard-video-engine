@@ -57,7 +57,7 @@ class Stroke:
     """
 
     points: list[Point]
-    color: tuple[int, int, int] = (18, 18, 18)
+    color: tuple[int, int, int] = (64, 60, 62)
     source: str = "raster"
 
 
