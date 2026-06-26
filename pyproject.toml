@@ -30,6 +30,12 @@ dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
 [project.scripts]
 whiteboard = "whiteboard_skill.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/gnipbao/whiteboard-video-engine"
+Repository = "https://github.com/gnipbao/whiteboard-video-engine"
+Issues = "https://github.com/gnipbao/whiteboard-video-engine/issues"
+CodexSkill = "https://github.com/gnipbao/codex-whiteboard-video-skill"
+
 [build-system]
 requires = ["setuptools>=70", "wheel"]
 build-backend = "setuptools.build_meta"

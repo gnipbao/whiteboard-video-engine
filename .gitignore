@@ -16,6 +16,9 @@ output/
 *.png.tmp
 .DS_Store
 
+# Curated demo outputs are allowed. Keep generated videos elsewhere ignored.
+!examples/cases/**/*.mp4
+
 # Local third-party model repositories. Users clone these manually.
 tools/informative-drawings/
 tools/Anime2Sketch/

@@ -25,8 +25,8 @@ This project has two audiences:
 Keeping the engine separate makes installation clearer:
 
 ```bash
-python3 -m pip install "git+https://github.com/YOUR_ORG/whiteboard-video-engine.git"
-git clone https://github.com/YOUR_ORG/codex-whiteboard-video-skill.git ~/.codex/skills/whiteboard-video
+python3 -m pip install "git+https://github.com/gnipbao/whiteboard-video-engine.git"
+git clone https://github.com/gnipbao/codex-whiteboard-video-skill.git ~/.codex/skills/whiteboard-video
 ```
 
 The skill can evolve as prompt/instruction packaging, while the engine can
@@ -76,7 +76,7 @@ Treat these as internal:
 - third-party model repositories
 - model weights
 - user uploads
-- generated videos
+- generated videos, except small curated demos under `examples/cases/`
 - local virtualenvs
 - Codex skill vendor copy of engine source
 
@@ -102,13 +102,14 @@ Treat these as internal:
 Before publishing:
 
 1. Add a license to both repositories.
-2. Replace `YOUR_ORG` placeholders in README and wrapper help text.
+2. Confirm repository URLs point to `https://github.com/gnipbao/`.
 3. Confirm `.gitignore` excludes weights, model repos, outputs, and virtualenvs.
 4. Run engine tests without model weights.
 5. Run one local model smoke test manually and document the result.
 6. Install the skill from the skill repository and verify it can call the
    installed engine.
-7. Add non-copyrighted screenshots or GIF demos.
+7. Confirm demo assets under `examples/cases/` are owned by the project or have
+   explicit open-source distribution permission.
 
 ## Future Packaging
 

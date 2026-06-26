@@ -1,61 +1,58 @@
 # Whiteboard Video Engine
 
-Local-first Python engine for stroke-by-stroke whiteboard videos.
+中文 | [English](#english)
 
-This repository contains the reusable engine and CLI. The Codex skill adapter
-lives in a separate repository:
+本项目是一个本地优先的白板手绘视频引擎，用于把 SVG、线稿 PNG、插画或照片转换成逐笔绘制的 MP4 视频。它负责真正的渲染、线稿提取、路径追踪、手势跟随和颜色填充；Codex Skill 是独立仓库，只作为调用入口。
 
-```text
-https://github.com/YOUR_ORG/codex-whiteboard-video-skill
-```
+- Engine: <https://github.com/gnipbao/whiteboard-video-engine>
+- Codex Skill: <https://github.com/gnipbao/codex-whiteboard-video-skill>
+- Author: <https://github.com/gnipbao>
+- 个人介绍 / Bio: <https://ycnj2htgnvdy.feishu.cn/wiki/DOYRws0FmizhDAkkKGicvlpzndh?from=from_copylink>
 
-Replace `YOUR_ORG` with your GitHub organization or username after publishing.
+## 能做什么
 
-## What It Does
+- 将 SVG 或线稿 PNG 渲染成逐笔绘制的白板视频。
+- 使用本地神经网络模型从上传图片中提取语义线稿。
+- 将 raster skeleton 拆成可绘制 stroke，并尽量合并短线为长线。
+- 支持 `asian`、`black`、`children`、`white` 四种内置手势 PNG。
+- 支持固定手势方向，只跟随笔尖平移，减少旋转抖动。
+- 支持 `--draw-text "短标题"`，把短文字转成手写路径。
+- 支持轮廓感上色，让颜色从线稿边界内逐步填充到原图效果。
 
-- Renders SVGs and line-art PNGs into smooth hand-drawn MP4 videos.
-- Extracts local neural line art from uploaded photos or illustrations.
-- Traces raster skeletons into drawable strokes.
-- Merges tiny fragments into longer stroke paths for smoother hand movement.
-- Supports fixed-orientation hand cursors.
-- Supports short hand-drawn text with `--draw-text`.
-- Fills color from the original source image after line drawing.
+## 安装
 
-## Install
-
-From a published repository:
+从 GitHub 安装：
 
 ```bash
-python3 -m pip install "git+https://github.com/YOUR_ORG/whiteboard-video-engine.git"
+python3 -m pip install "git+https://github.com/gnipbao/whiteboard-video-engine.git"
 ```
 
-For local development:
+本地开发安装：
 
 ```bash
-git clone https://github.com/YOUR_ORG/whiteboard-video-engine.git
+git clone https://github.com/gnipbao/whiteboard-video-engine.git
 cd whiteboard-video-engine
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-If you are installing from a local checkout in a restricted network
-environment, disable build isolation and install dependencies yourself first:
+如果网络受限，先安装基础依赖，再关闭 build isolation：
 
 ```bash
 pip install numpy Pillow pydantic
 pip install --no-build-isolation --no-deps -e .
 ```
 
-Check the runtime:
+检查运行环境：
 
 ```bash
 whiteboard doctor
 ```
 
-## Quick Start
+## 快速开始
 
-Render a clean SVG:
+渲染 SVG：
 
 ```bash
 whiteboard render-image tests/fixtures/apple.svg \
@@ -67,7 +64,7 @@ whiteboard render-image tests/fixtures/apple.svg \
   --hand asian
 ```
 
-Render an uploaded image with local neural line-art extraction:
+渲染上传图片：
 
 ```bash
 whiteboard render-photo input.jpg \
@@ -80,7 +77,7 @@ whiteboard render-photo input.jpg \
   --color-fill contour-wipe
 ```
 
-If you do not install the console script:
+如果没有安装 console script，也可以直接调用模块：
 
 ```bash
 PYTHONPATH=src python3 -m whiteboard_skill.cli render-image tests/fixtures/apple.svg \
@@ -89,20 +86,42 @@ PYTHONPATH=src python3 -m whiteboard_skill.cli render-image tests/fixtures/apple
   --hand asian
 ```
 
-## Local Line-Art Models
+## Example Case
 
-Model code and weights are not included in this repository. Users install them
-locally from upstream projects.
+已内置一个插画案例：
 
-Supported providers:
+- 输入图：`examples/cases/sports-illustration-anime2sketch/input.jpg`
+- 输出视频：`examples/cases/sports-illustration-anime2sketch/output.mp4`
+- 说明：`examples/cases/sports-illustration-anime2sketch/README.md`
 
-- Informative Drawings: best default for real photos and semantic line art.
-- Anime2Sketch: best for anime, manga, illustration, and clean white-background
-  art.
+复现命令：
 
-See [docs/MODELS.md](docs/MODELS.md).
+```bash
+whiteboard render-photo examples/cases/sports-illustration-anime2sketch/input.jpg \
+  -o out/sports-illustration-anime2sketch-longmix-15s.mp4 \
+  --duration 15 \
+  --fps 30 \
+  --lineart-provider anime2sketch \
+  --stroke-detail rich \
+  --hand asian \
+  --tail-color 4.5 \
+  --color-fill contour-wipe
+```
 
-## CLI Overview
+发布公开仓库时，请确认示例素材拥有可开源分发的授权；否则建议替换为自有或开放许可素材。
+
+## 本地线稿模型
+
+模型代码和权重不提交到本仓库。用户需要按照上游项目说明自行下载。
+
+支持：
+
+- Informative Drawings：更适合真实照片和语义线稿。
+- Anime2Sketch：更适合动漫、漫画、插画和白底干净图片。
+
+详见 [docs/MODELS.md](docs/MODELS.md)。
+
+## CLI 概览
 
 ```bash
 whiteboard extract-lineart image.jpg -o lineart.png --provider auto
@@ -113,7 +132,7 @@ whiteboard list-hands
 whiteboard doctor
 ```
 
-Common options:
+常用参数：
 
 - `--stroke-detail balanced|rich|max`
 - `--hand asian|black|children|white|procedural|none`
@@ -122,9 +141,9 @@ Common options:
 - `--lineart-snap-threshold 170`
 - `--no-lineart-snap`
 
-## Technical Stack
+## 技术栈
 
-Core:
+核心依赖：
 
 - Python
 - Pillow
@@ -132,16 +151,16 @@ Core:
 - Pydantic
 - FFmpeg
 
-Rendering:
+渲染算法：
 
 - Zhang-Suen skeletonization
 - 8-neighbor stroke tracing
 - endpoint-based stroke merging
-- long/medium/short stroke mix for smoother hand motion
-- fixed-orientation PNG hand cursors
+- long / medium / short stroke mix
+- fixed-orientation PNG hand cursor
 - contour-aware color fill
 
-Optional model inference:
+可选模型推理：
 
 - PyTorch
 - torchvision
@@ -149,30 +168,102 @@ Optional model inference:
 - Anime2Sketch
 - optional VTracer CLI
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+架构说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-## Codex Skill
+## Codex Skill 集成
+
+先安装引擎，再安装 Skill：
+
+```bash
+mkdir -p ~/.codex/skills
+git clone https://github.com/gnipbao/codex-whiteboard-video-skill.git \
+  ~/.codex/skills/whiteboard-video
+```
+
+Skill 仓库不会 vendor `src/whiteboard_skill`，只通过 wrapper 调用已安装的 engine package。
+
+## 不要提交
+
+- 大量生成视频、临时输出、`out/`、`work/`
+- `.venv/`、`.venv-lineart/`
+- `tools/informative-drawings/`
+- `tools/Anime2Sketch/`
+- `*.pth`、`*.pt`、`*.ckpt`、`*.safetensors`、`*.onnx`、`*.bin`
+- 未授权用户上传素材
+
+少量 curated example 可放在 `examples/cases/`，用于公开演示。
+
+## License
+
+MIT. 上游模型项目和权重请分别查看各自许可证。
+
+---
+
+## English
+
+Whiteboard Video Engine is a local-first Python engine for stroke-by-stroke whiteboard videos. It converts SVGs, line-art PNGs, illustrations, or photos into MP4 videos with hand-following strokes and contour-aware color fill.
+
+- Engine: <https://github.com/gnipbao/whiteboard-video-engine>
+- Codex Skill: <https://github.com/gnipbao/codex-whiteboard-video-skill>
+- Author: <https://github.com/gnipbao>
+- Bio: <https://ycnj2htgnvdy.feishu.cn/wiki/DOYRws0FmizhDAkkKGicvlpzndh?from=from_copylink>
+
+### Features
+
+- Render SVGs and line-art PNGs into smooth hand-drawn videos.
+- Extract semantic line art from uploaded photos or illustrations with local neural models.
+- Trace raster skeletons into drawable strokes and merge fragments into longer paths.
+- Built-in hand PNGs: `asian`, `black`, `children`, and `white`.
+- Fixed-orientation hand cursor that translates with the pen tip.
+- Short hand-drawn text via `--draw-text`.
+- Contour-aware color fill from the original source image.
+
+### Install
+
+```bash
+python3 -m pip install "git+https://github.com/gnipbao/whiteboard-video-engine.git"
+```
+
+For local development:
+
+```bash
+git clone https://github.com/gnipbao/whiteboard-video-engine.git
+cd whiteboard-video-engine
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+### Quick Start
+
+```bash
+whiteboard render-photo input.jpg \
+  -o out/whiteboard.mp4 \
+  --duration 15 \
+  --fps 30 \
+  --lineart-provider auto \
+  --stroke-detail rich \
+  --hand asian \
+  --color-fill contour-wipe
+```
+
+### Local Line-Art Models
+
+Model code and weights are not included. Install them locally from upstream projects:
+
+- Informative Drawings: <https://github.com/carolineec/informative-drawings>
+- Anime2Sketch: <https://github.com/Mukosame/Anime2Sketch>
+
+See [docs/MODELS.md](docs/MODELS.md).
+
+### Codex Skill
 
 Install the separate skill repository after installing this engine:
 
 ```bash
 mkdir -p ~/.codex/skills
-git clone https://github.com/YOUR_ORG/codex-whiteboard-video-skill.git \
+git clone https://github.com/gnipbao/codex-whiteboard-video-skill.git \
   ~/.codex/skills/whiteboard-video
 ```
 
-The skill wrapper imports this installed engine package. The skill repository
-does not vendor `src/whiteboard_skill`.
-
-## What Not To Commit
-
-- `out/`, `work/`, generated videos, generated images
-- `.venv/`, `.venv-lineart/`
-- `tools/informative-drawings/`
-- `tools/Anime2Sketch/`
-- `*.pth`, `*.pt`, `*.ckpt`, `*.safetensors`, `*.onnx`, `*.bin`
-- user uploads or copyrighted samples
-
-## License
-
-MIT. Check upstream model licenses separately.
+The skill wrapper imports this installed engine package. It does not vendor the engine source code or model weights.
