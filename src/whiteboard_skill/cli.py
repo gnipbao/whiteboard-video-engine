@@ -77,13 +77,10 @@ def main(argv: list[str] | None = None) -> int:
                 vectorize_with_vtracer(lineart_path, args.svg_output)
                 render_input = args.svg_output
                 use_lineart_size = False
-            resolution = (args.width, args.height)
             if use_lineart_size:
-                from PIL import Image
-
-                with Image.open(lineart_path) as source_image:
-                    width, height = source_image.size
-                resolution = (max(2, width - width % 2), max(2, height - height % 2))
+                resolution, used_source_size = _resolve_raster_resolution(lineart_path, args.width, args.height)
+            else:
+                resolution, used_source_size = _resolve_raster_resolution(args.image, args.width, args.height)
             render_image(
                 render_input,
                 args.output,
@@ -92,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 resolution=resolution,
                 tail_color_sec=args.tail_color,
                 source_image_path=args.image,
-                source_fit="exact" if use_lineart_size else args.source_fit,
+                source_fit="exact" if used_source_size else args.source_fit,
                 color_fill_mode=args.color_fill,
                 color_fill_blocks=args.color_blocks,
                 hand_style=args.hand,
@@ -216,8 +213,8 @@ def _build_parser() -> argparse.ArgumentParser:
     photo.add_argument("--lineart-provider", choices=lineart_provider_choices, default="auto")
     photo.add_argument("--duration", type=float, default=8.0)
     photo.add_argument("--fps", type=int, default=60)
-    photo.add_argument("--width", type=int, default=1920)
-    photo.add_argument("--height", type=int, default=1080)
+    photo.add_argument("--width", type=int, help="Output width. If omitted, render-photo uses the extracted line-art image width.")
+    photo.add_argument("--height", type=int, help="Output height. If omitted, render-photo uses the extracted line-art image height.")
     photo.add_argument("--tail-color", type=float, default=2.0)
     photo.add_argument("--source-fit", choices=["exact", "blur-fill", "contain", "cover"], default="exact")
     photo.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade"], default="contour-wipe")
@@ -296,6 +293,37 @@ def _check(fn) -> bool:
         return True
     except Exception:
         return False
+
+
+def _even_dimension(value: float | int) -> int:
+    rounded = max(2, int(round(value)))
+    return rounded - rounded % 2
+
+
+def _resolve_raster_resolution(image_path: Path, width: int | None, height: int | None) -> tuple[tuple[int, int], bool]:
+    """Resolve a raster output size for render-photo.
+
+    Returns the H.264-safe even resolution and whether it came directly from
+    the source image dimensions.
+    """
+
+    from PIL import Image
+
+    with Image.open(image_path) as source_image:
+        source_width, source_height = source_image.size
+
+    if width is None and height is None:
+        return (_even_dimension(source_width), _even_dimension(source_height)), True
+    if width is None:
+        assert height is not None
+        resolved_height = _even_dimension(height)
+        resolved_width = _even_dimension(resolved_height * source_width / source_height)
+        return (resolved_width, resolved_height), False
+    if height is None:
+        resolved_width = _even_dimension(width)
+        resolved_height = _even_dimension(resolved_width * source_height / source_width)
+        return (resolved_width, resolved_height), False
+    return (_even_dimension(width), _even_dimension(height)), False
 
 
 def _scene_payload(scene) -> dict[str, object]:
