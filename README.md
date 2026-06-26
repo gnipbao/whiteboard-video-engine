@@ -102,7 +102,6 @@ PYTHONPATH=src python3 -m whiteboard_skill.cli render-image tests/fixtures/apple
       <img src="examples/cases/sports-illustration-anime2sketch/input.jpg" alt="Sports illustration input" width="360">
     </td>
     <td width="50%">
-      <strong>输出视频 / Output</strong><br>
       <video src="https://github.com/user-attachments/assets/d641bf39-9dda-4644-99bf-98d482468814" controls width="360"></video>
     </td>
   </tr>
