@@ -123,7 +123,45 @@ whiteboard doctor
 
 ## 线稿模型
 
-本仓库不提交模型仓库和模型权重。用户需要本地安装模型，并将 wrapper 放在 `tools/lineart/` 下。
+`render-photo` 和 `extract-lineart` 会从当前运行命令的项目目录自动发现本地模型。模型代码、权重和 wrapper 脚本建议放在同一个项目目录的 `tools/` 下。
+
+推荐目录结构：
+
+```text
+my-whiteboard-project/
+  .venv-lineart/
+    bin/
+      python
+  tools/
+    lineart/
+      run_informative_drawings.py
+      run_anime2sketch.py
+    informative-drawings/
+      checkpoints/
+        model/
+          anime_style/
+            netG_A_latest.pth
+          contour_style/
+            netG_A_latest.pth        # 可选
+          opensketch_style/
+            netG_A_latest.pth        # 可选
+    Anime2Sketch/
+      weights/
+        netG.pth
+        improved.bin                 # 可选，有则优先使用
+```
+
+最小可用目录：
+
+- Informative Drawings：需要 `tools/lineart/run_informative_drawings.py` 和 `tools/informative-drawings/checkpoints/model/anime_style/netG_A_latest.pth`。
+- Anime2Sketch：需要 `tools/lineart/run_anime2sketch.py` 和 `tools/Anime2Sketch/weights/netG.pth` 或 `tools/Anime2Sketch/weights/improved.bin`。
+
+如果模型放在其他位置，可以显式配置命令：
+
+```bash
+export WHITEBOARD_INFORMATIVE_DRAWINGS_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_informative_drawings.py {input} {output}"
+export WHITEBOARD_ANIME2SKETCH_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_anime2sketch.py {input} {output}"
+```
 
 支持的线稿模型：
 

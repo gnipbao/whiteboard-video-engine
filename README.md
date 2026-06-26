@@ -129,7 +129,45 @@ Common options:
 
 ## Line-Art Models
 
-Model repositories and weights are not committed to this repository. Install them locally and place wrappers under `tools/lineart/`.
+`render-photo` and `extract-lineart` discover local models from the current working directory. Put model code, weights, and wrapper scripts in the project folder where you run `whiteboard`.
+
+Recommended layout:
+
+```text
+my-whiteboard-project/
+  .venv-lineart/
+    bin/
+      python
+  tools/
+    lineart/
+      run_informative_drawings.py
+      run_anime2sketch.py
+    informative-drawings/
+      checkpoints/
+        model/
+          anime_style/
+            netG_A_latest.pth
+          contour_style/
+            netG_A_latest.pth        # optional
+          opensketch_style/
+            netG_A_latest.pth        # optional
+    Anime2Sketch/
+      weights/
+        netG.pth
+        improved.bin                 # optional; preferred when available
+```
+
+Minimum valid setups:
+
+- Informative Drawings: `tools/lineart/run_informative_drawings.py` plus `tools/informative-drawings/checkpoints/model/anime_style/netG_A_latest.pth`.
+- Anime2Sketch: `tools/lineart/run_anime2sketch.py` plus `tools/Anime2Sketch/weights/netG.pth` or `tools/Anime2Sketch/weights/improved.bin`.
+
+If models live elsewhere, set explicit commands:
+
+```bash
+export WHITEBOARD_INFORMATIVE_DRAWINGS_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_informative_drawings.py {input} {output}"
+export WHITEBOARD_ANIME2SKETCH_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_anime2sketch.py {input} {output}"
+```
 
 Supported providers:
 

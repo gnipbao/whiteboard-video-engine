@@ -1,22 +1,36 @@
-# Model Setup
+# Local Line-Art Model Setup
 
-The engine does not include neural model code or model weights. Install them
-locally under `tools/` when you want to use `render-photo` or
-`extract-lineart`.
+The engine does not ship neural model repositories or model weights. `render-photo` and `extract-lineart` discover local providers from the current working directory.
 
-The engine auto-discovers these wrapper scripts:
+Use one project directory as the runtime root:
 
-- `tools/lineart/run_informative_drawings.py`
-- `tools/lineart/run_anime2sketch.py`
+```text
+my-whiteboard-project/
+  .venv-lineart/
+    bin/
+      python
+  tools/
+    lineart/
+      run_informative_drawings.py
+      run_anime2sketch.py
+    informative-drawings/
+      checkpoints/
+        model/
+          anime_style/
+            netG_A_latest.pth
+          contour_style/
+            netG_A_latest.pth        # optional
+          opensketch_style/
+            netG_A_latest.pth        # optional
+    Anime2Sketch/
+      weights/
+        netG.pth
+        improved.bin                 # optional; preferred when available
+```
 
-It also accepts explicit commands:
+`tools/lineart/*.py` are the wrapper scripts from this repository. Model repositories and weights are downloaded from upstream projects.
 
-- `WHITEBOARD_INFORMATIVE_DRAWINGS_CMD`
-- `WHITEBOARD_ANIME2SKETCH_CMD`
-
-Commands may contain `{input}` and `{output}` placeholders.
-
-## Python Environment For Line-Art Models
+## Runtime Environment
 
 Create a separate environment for PyTorch model inference:
 
@@ -26,11 +40,27 @@ python3 -m venv .venv-lineart
 .venv-lineart/bin/python -m pip install torch torchvision Pillow numpy tqdm
 ```
 
-The engine will use `.venv-lineart/bin/python` automatically when it exists.
+When `.venv-lineart/bin/python` exists under the runtime root, the engine uses it automatically.
+
+## Wrapper Scripts
+
+Keep these files in:
+
+```text
+tools/lineart/
+  run_informative_drawings.py
+  run_anime2sketch.py
+```
+
+If you installed the engine with `pip` and do not have a repository checkout, copy the wrapper scripts from:
+
+```text
+https://github.com/gnipbao/whiteboard-video-engine/tree/main/tools/lineart
+```
 
 ## Informative Drawings
 
-Best default for photos and semantic line art.
+Recommended for photos and semantic line art.
 
 Upstream:
 
@@ -46,19 +76,25 @@ mkdir -p tools
 git clone https://github.com/carolineec/informative-drawings.git tools/informative-drawings
 ```
 
-Download the pretrained model from the upstream README:
+Download pretrained weights from the upstream README:
 
-- https://drive.google.com/file/d/1MIdHzecxz-z0uY3ARL_R40DlKcuQxiDk/view?usp=sharing
+```text
+https://drive.google.com/file/d/1MIdHzecxz-z0uY3ARL_R40DlKcuQxiDk/view?usp=sharing
+```
 
-Expected weight path, either of these:
+Expected weight path, either layout is valid:
 
 ```text
 tools/informative-drawings/checkpoints/anime_style/netG_A_latest.pth
 tools/informative-drawings/checkpoints/model/anime_style/netG_A_latest.pth
 ```
 
-The second layout is common when the upstream `model.zip` is unzipped directly
-inside `checkpoints/`.
+Optional styles can use:
+
+```text
+tools/informative-drawings/checkpoints/model/contour_style/netG_A_latest.pth
+tools/informative-drawings/checkpoints/model/opensketch_style/netG_A_latest.pth
+```
 
 Manual test:
 
@@ -72,8 +108,7 @@ Manual test:
 
 ## Anime2Sketch
 
-Best for anime, manga, illustration, and clean white-background art. It is not
-the best default for real photos with dark or low-contrast backgrounds.
+Recommended for anime, manga, illustration, and clean white-background art.
 
 Upstream:
 
@@ -89,8 +124,13 @@ git clone https://github.com/Mukosame/Anime2Sketch.git tools/Anime2Sketch
 
 Download weights from the upstream README:
 
-- Default weights folder: https://drive.google.com/drive/folders/1Srf-WYUixK0wiUddc9y3pNKHHno5PN6R?usp=sharing
-- Artifact-free weight for dark / low-contrast images: https://drive.google.com/file/d/1cf90_fPW-elGOKu5mTXT5N1dum-XY_46/view?usp=sharing
+```text
+Default weights folder:
+https://drive.google.com/drive/folders/1Srf-WYUixK0wiUddc9y3pNKHHno5PN6R?usp=sharing
+
+Artifact-free weight for dark / low-contrast images:
+https://drive.google.com/file/d/1cf90_fPW-elGOKu5mTXT5N1dum-XY_46/view?usp=sharing
+```
 
 Expected weight path:
 
@@ -99,8 +139,7 @@ tools/Anime2Sketch/weights/netG.pth
 tools/Anime2Sketch/weights/improved.bin
 ```
 
-If `improved.bin` exists, the wrapper uses it automatically. Otherwise it uses
-`netG.pth`.
+If `improved.bin` exists, the wrapper uses it first. Otherwise it uses `netG.pth`.
 
 Manual test:
 
@@ -111,34 +150,53 @@ Manual test:
   --load-size 768
 ```
 
-## Provider Selection
+## Auto-Discovery Rules
+
+Run `whiteboard` from the runtime root that contains `tools/`:
 
 ```bash
+cd my-whiteboard-project
 whiteboard extract-lineart input.jpg -o out/lineart.png --provider auto
 ```
 
-`auto` resolves in this order:
+Provider order for `--provider auto`:
 
-1. Informative Drawings, when installed and weighted.
-2. Anime2Sketch, when installed and weighted.
-3. Fail loudly.
+1. Informative Drawings, when wrapper and weights are present.
+2. Anime2Sketch, when wrapper and weights are present.
+3. Fail with an explicit setup error.
 
 There is no Canny, XDoG, or edge-only production fallback.
 
-Use explicit providers when comparing quality:
+## Explicit Command Mode
+
+If model folders are outside the current working directory, set commands explicitly:
 
 ```bash
-whiteboard extract-lineart input.jpg -o out/informative.png --provider informative
-whiteboard extract-lineart input.jpg -o out/anime2sketch.png --provider anime2sketch
+export WHITEBOARD_INFORMATIVE_DRAWINGS_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_informative_drawings.py {input} {output}"
+export WHITEBOARD_ANIME2SKETCH_CMD="/abs/project/.venv-lineart/bin/python /abs/project/tools/lineart/run_anime2sketch.py {input} {output}"
 ```
+
+Commands may contain `{input}` and `{output}` placeholders. If placeholders are omitted, the engine appends input and output paths as positional arguments.
 
 ## Version-Control Policy
 
+Commit:
+
+```text
+tools/lineart/run_informative_drawings.py
+tools/lineart/run_anime2sketch.py
+```
+
 Do not commit:
 
-- model repositories under `tools/informative-drawings/` or `tools/Anime2Sketch/`
-- model weights
-- `.venv-lineart/`
-- generated line art or videos
-
-Keep only the wrapper scripts under `tools/lineart/`.
+```text
+tools/informative-drawings/
+tools/Anime2Sketch/
+.venv-lineart/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+*.bin
+```
