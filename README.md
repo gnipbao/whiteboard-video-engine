@@ -1,6 +1,11 @@
 # Whiteboard Video Engine
 
-中文 | [English](#english)
+<p align="center">
+  <a href="#中文"><kbd>中文</kbd></a>
+  <a href="#english"><kbd>English</kbd></a>
+</p>
+
+## 中文
 
 本项目是一个本地优先的白板手绘视频引擎，用于把 SVG、线稿 PNG、插画或照片转换成逐笔绘制的 MP4 视频。它负责真正的渲染、线稿提取、路径追踪、手势跟随和颜色填充；Codex Skill 是独立仓库，只作为调用入口。
 
@@ -89,6 +94,20 @@ PYTHONPATH=src python3 -m whiteboard_skill.cli render-image tests/fixtures/apple
 ## Example Case
 
 已内置一个插画案例：
+
+<table>
+  <tr>
+    <td width="50%">
+      <strong>输入图 / Input</strong><br>
+      <img src="examples/cases/sports-illustration-anime2sketch/input.jpg" alt="Sports illustration input" width="360">
+    </td>
+    <td width="50%">
+      <strong>输出视频 / Output</strong><br>
+      <video src="examples/cases/sports-illustration-anime2sketch/output.mp4" controls width="360"></video><br>
+      <a href="examples/cases/sports-illustration-anime2sketch/output.mp4">Open output video</a>
+    </td>
+  </tr>
+</table>
 
 - 输入图：`examples/cases/sports-illustration-anime2sketch/input.jpg`
 - 输出视频：`examples/cases/sports-illustration-anime2sketch/output.mp4`
@@ -201,6 +220,11 @@ MIT. 上游模型项目和权重请分别查看各自许可证。
 
 ## English
 
+<p align="center">
+  <a href="#中文"><kbd>中文</kbd></a>
+  <a href="#english"><kbd>English</kbd></a>
+</p>
+
 Whiteboard Video Engine is a local-first Python engine for stroke-by-stroke whiteboard videos. It converts SVGs, line-art PNGs, illustrations, or photos into MP4 videos with hand-following strokes and contour-aware color fill.
 
 - Engine: <https://github.com/gnipbao/whiteboard-video-engine>
@@ -246,6 +270,22 @@ whiteboard render-photo input.jpg \
   --hand asian \
   --color-fill contour-wipe
 ```
+
+### Demo
+
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Input</strong><br>
+      <img src="examples/cases/sports-illustration-anime2sketch/input.jpg" alt="Sports illustration input" width="360">
+    </td>
+    <td width="50%">
+      <strong>Output</strong><br>
+      <video src="examples/cases/sports-illustration-anime2sketch/output.mp4" controls width="360"></video><br>
+      <a href="examples/cases/sports-illustration-anime2sketch/output.mp4">Open output video</a>
+    </td>
+  </tr>
+</table>
 
 ### Local Line-Art Models
 
