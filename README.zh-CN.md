@@ -153,7 +153,8 @@ whiteboard doctor
 常用参数：
 
 - `--stroke-detail balanced|rich|max`
-- `--hand asian|black|children|white|procedural|none`
+- `--hand asian|black|children|white|procedural|none`（默认 `asian`）
+- `--line-thickness 0|N`（默认 `0`，根据线稿粗细自动适配；正整数为手动覆盖）
 - `--draw-text "标题"`
 - `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
 - `--lineart-provider auto|informative|anime2sketch`

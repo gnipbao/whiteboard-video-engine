@@ -236,8 +236,14 @@ def _skel_neighbors(skel: np.ndarray, point: tuple[int, int]) -> list[tuple[int,
     result = []
     for dx, dy in NEIGHBORS_8:
         nx, ny = x + dx, y + dy
-        if 0 <= nx < w and 0 <= ny < h and skel[ny, nx]:
-            result.append((nx, ny))
+        if not (0 <= nx < w and 0 <= ny < h and skel[ny, nx]):
+            continue
+        if dx != 0 and dy != 0 and (skel[y, nx] or skel[ny, x]):
+            # An orthogonal bridge already connects these pixels. Ignoring the
+            # redundant diagonal avoids tiny triangular strokes around T and
+            # cross junctions while preserving true diagonal centerlines.
+            continue
+        result.append((nx, ny))
     return result
 
 
@@ -264,6 +270,11 @@ def _choose_next(
 def trace_8connected(skel: np.ndarray, min_points: int = 8) -> list[np.ndarray]:
     """Trace 8-connected skeleton pixels into continuous stroke arrays.
 
+    At junctions, keep following the straightest unused edge instead of
+    splitting every branch into a separate short stroke. Remaining branches
+    are picked up by later starts. This better matches how a person would draw
+    thick or jagged doodle contours with one continuous pen movement.
+
     Example:
         >>> trace_8connected(np.eye(8, dtype=bool), min_points=2)[0].shape[1]
         2
@@ -274,7 +285,6 @@ def trace_8connected(skel: np.ndarray, min_points: int = 8) -> list[np.ndarray]:
     if not points:
         return []
     degrees = {p: len(_skel_neighbors(skel, p)) for p in points}
-    nodes = {p for p, degree in degrees.items() if degree != 2}
     starts = [p for p in points if degrees[p] == 1] + [p for p in points if degrees[p] > 2] + points
     visited_edges: set[tuple[tuple[int, int], tuple[int, int]]] = set()
     strokes: list[np.ndarray] = []
@@ -288,8 +298,6 @@ def trace_8connected(skel: np.ndarray, min_points: int = 8) -> list[np.ndarray]:
             visited_edges.add(edge)
             while True:
                 path.append(cur)
-                if cur in nodes and cur != start:
-                    break
                 next_pt = _choose_next(prev, cur, _skel_neighbors(skel, cur), visited_edges)
                 if next_pt is None:
                     break

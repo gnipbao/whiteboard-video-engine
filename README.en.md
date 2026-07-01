@@ -159,7 +159,8 @@ whiteboard doctor
 Common options:
 
 - `--stroke-detail balanced|rich|max`
-- `--hand asian|black|children|white|procedural|none`
+- `--hand asian|black|children|white|procedural|none` (`asian` by default)
+- `--line-thickness 0|N` (`0` adapts to the source line art; a positive integer overrides it)
 - `--draw-text "Title"`
 - `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
 - `--lineart-provider auto|informative|anime2sketch`

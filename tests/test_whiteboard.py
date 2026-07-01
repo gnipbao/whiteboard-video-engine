@@ -11,11 +11,18 @@ from whiteboard_skill.whiteboard import (
     _line_art_ink_mask,
     _load_source_image_canvas,
     _prepare_timeline,
+    _resolve_line_thickness,
     _reveal_line_art_canvas,
     _stroke_segment_between,
     _text_to_strokes,
     _top_down_block_fill,
 )
+
+
+def test_resolve_line_thickness_adapts_unless_overridden():
+    assert _resolve_line_thickness(0, 4) == 4
+    assert _resolve_line_thickness(None, 3) == 3
+    assert _resolve_line_thickness(1, 5) == 1
 
 
 def test_prepare_timeline_keeps_stroke_intervals_ordered():

@@ -28,7 +28,7 @@ def run_pipeline(
     tail_color_seconds: float = 2.0,
     resume: bool = False,
     mock: bool | None = None,
-    hand_style: str = "procedural",
+    hand_style: str = "asian",
     hand_scale: float = 1.0,
 ) -> Project:
     """Run script -> scenes -> images -> narration -> rendered MP4."""

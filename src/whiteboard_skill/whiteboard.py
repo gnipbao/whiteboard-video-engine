@@ -192,6 +192,14 @@ def _estimate_line_art_width(line_art: Image.Image | None, threshold: int = DEFA
     return max(2, min(7, int(round(estimated))))
 
 
+def _resolve_line_thickness(requested: int | None, estimated_line_width: int) -> int:
+    """Resolve an explicit stroke width or adapt it to the source line art."""
+
+    if requested is None or int(requested) <= 0:
+        return max(1, min(7, int(round(estimated_line_width))))
+    return max(1, int(requested))
+
+
 def _combine_masks(a: Image.Image, b: Image.Image) -> Image.Image:
     arr = np.minimum(np.asarray(a.convert("L"), dtype=np.uint8), np.asarray(b.convert("L"), dtype=np.uint8))
     return Image.fromarray(arr, mode="L")
@@ -679,10 +687,10 @@ def render_scene(
     fps: int = 60,
     resolution: tuple[int, int] = (1920, 1080),
     tail_color_sec: float = 2.0,
-    line_thickness: int = 1,
+    line_thickness: int | None = 0,
     show_cursor: bool = True,
     source_image: Image.Image | None = None,
-    hand_style: str | Path = "procedural",
+    hand_style: str | Path = "asian",
     hand_scale: float = 1.0,
     color_fill_mode: str = "contour-wipe",
     color_fill_blocks: int = 18,
@@ -704,7 +712,7 @@ def render_scene(
     source = source_image.convert("RGB").resize(resolution) if source_image else load_on_canvas(image_path, resolution)
     aa_scale = 2 if max(resolution) <= 1280 else 1
     estimated_line_width = _estimate_line_art_width(complete_line_art, threshold=line_art_snap_threshold)
-    effective_line_thickness = max(1, int(line_thickness))
+    effective_line_thickness = _resolve_line_thickness(line_thickness, estimated_line_width)
     reveal_width = max(effective_line_thickness * 3 + 2, int(round(estimated_line_width * 2.2)), 8)
     snap_ink_mask = (
         _line_art_ink_mask(complete_line_art, resolution, threshold=line_art_snap_threshold)
@@ -828,13 +836,13 @@ def render_image(
     source_fit: str = "blur-fill",
     color_fill_mode: str = "contour-wipe",
     color_fill_blocks: int = 18,
-    hand_style: str | Path = "procedural",
+    hand_style: str | Path = "asian",
     hand_scale: float = 1.0,
     draw_text: str | None = None,
     draw_text_position: str = "bottom",
     line_art_snap: bool = True,
     line_art_snap_threshold: int = DEFAULT_LINE_ART_SNAP_THRESHOLD,
-    line_thickness: int = 1,
+    line_thickness: int | None = 0,
     stroke_detail: str = "rich",
 ) -> None:
     """Extract strokes from one image and render a scene MP4."""

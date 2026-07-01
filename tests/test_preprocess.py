@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from whiteboard_skill.preprocess import Stroke, binarize, merge_nearby_strokes, order_strokes, smooth_strokes, svg_to_strokes, to_strokes, zhang_suen_skeleton
+from whiteboard_skill.preprocess import Stroke, binarize, merge_nearby_strokes, order_strokes, smooth_strokes, svg_to_strokes, to_strokes, trace_8connected, zhang_suen_skeleton
 
 
 def test_binarize_marks_dark_pixels():
@@ -15,6 +15,17 @@ def test_skeleton_preserves_shape():
     mask[2:7, 4] = True
     skel = zhang_suen_skeleton(mask)
     assert skel.sum() > 0
+
+
+def test_trace_8connected_continues_straight_through_junctions():
+    skeleton = np.zeros((13, 13), dtype=bool)
+    skeleton[6, 2:11] = True
+    skeleton[6:11, 6] = True
+
+    strokes = trace_8connected(skeleton, min_points=2)
+
+    assert len(strokes) == 2
+    assert any(path[:, 0].min() == 2 and path[:, 0].max() == 10 for path in strokes)
 
 
 def test_svg_to_strokes_fixture():
