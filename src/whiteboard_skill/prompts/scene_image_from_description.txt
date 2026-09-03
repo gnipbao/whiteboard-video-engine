@@ -1,5 +1,7 @@
-Create one simple whiteboard-video scene image from this script or description.
-Use a clear single-subject composition with readable silhouettes and expressive poses.
+Create one color storyboard illustration from this script or description.
+Use a clear story-beat composition with readable silhouettes, expressive poses, extractable outlines, and separated color regions. Follow the visual-style recipe supplied with the scene.
+If the scene contains several objects or moments, arrange two to four disconnected visual clusters with clear paper space between them; do not join the whole canvas with one continuous ground line.
+Preserve natural breathing room near important props for an optional tiny explanatory label; do not create a fixed caption or subtitle band.
 Avoid text, letters, labels, UI, screenshots, photorealistic texture, dense backgrounds, and tiny details.
 Do not add a picture frame, page border, crop outline, or decorative border around the image.
-The image will later be converted into pure black line art for stroke-by-stroke drawing animation.
+The same image will later be converted locally into registered line art and revealed again as the final style-preserving color layer.

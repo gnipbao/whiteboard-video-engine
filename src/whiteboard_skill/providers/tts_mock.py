@@ -10,6 +10,9 @@ from pathlib import Path
 class MockTTSProvider:
     """Generate quiet synthetic audio without external services."""
 
+    default_voice = "mock"
+    file_extension = ".wav"
+
     def synthesize(self, text: str, out_path: Path, voice: str) -> float:
         """Write a low-volume sine WAV and return its duration."""
 

@@ -1,11 +1,15 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from PIL import Image, ImageDraw
+import numpy as np
 import pytest
+from PIL import Image, ImageDraw
 
 from whiteboard_skill.cli import _normalize_lineart
-from whiteboard_skill.providers.lineart import get_lineart_provider, _postprocess_extracted_lineart
+from whiteboard_skill.providers.lineart import (
+    _postprocess_extracted_lineart,
+    get_lineart_provider,
+)
 
 
 def test_auto_provider_uses_configured_neural_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -49,10 +53,14 @@ def test_placeholder_command_keeps_paths_with_spaces(tmp_path: Path, monkeypatch
     assert out_path.exists()
 
 
-def test_anime2sketch_cleanup_removes_faint_fragments_and_darkens_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_anime2sketch_cleanup_removes_fragments_but_preserves_pencil_tones(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
     image = Image.new("L", (80, 60), 255)
     draw = ImageDraw.Draw(image)
-    draw.line((8, 32, 72, 32), fill=180, width=1)
+    for x in range(8, 73):
+        image.putpixel((x, 32), 32 + (x - 8) * 2)
     draw.line((8, 12, 16, 12), fill=242, width=1)
     draw.rectangle((42, 8, 43, 9), fill=80)
     path = tmp_path / "anime2sketch.png"
@@ -62,10 +70,26 @@ def test_anime2sketch_cleanup_removes_faint_fragments_and_darkens_lines(tmp_path
     _postprocess_extracted_lineart(path, "anime2sketch")
 
     result = Image.open(path).convert("L")
-    assert result.getpixel((40, 32)) == 0
+    assert result.getpixel((40, 32)) == 96
     assert result.getpixel((40, 31)) == 255
     assert result.getpixel((12, 12)) == 255
     assert result.getpixel((42, 8)) == 255
+    assert len(np.unique(np.asarray(result.crop((8, 32, 73, 33))))) >= 32
+    assert result.getpixel((0, 0)) == 255
+
+
+def test_informative_cleanup_keeps_binary_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    image = Image.new("L", (80, 60), 255)
+    ImageDraw.Draw(image).line((8, 32, 72, 32), fill=180, width=1)
+    path = tmp_path / "informative.png"
+    image.convert("RGB").save(path)
+
+    monkeypatch.delenv("WHITEBOARD_LINEART_CLEANUP", raising=False)
+    _postprocess_extracted_lineart(path, "informative-drawings")
+
+    result = Image.open(path).convert("L")
+    assert result.getpixel((40, 32)) == 0
+    assert set(np.unique(np.asarray(result)).tolist()) <= {0, 255}
 
 
 def test_xdog_provider_is_not_available():

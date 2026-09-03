@@ -19,10 +19,10 @@ scene_split -> image_gen -> local line-art extraction
   |
   | image path
   v
-line-art normalization -> raster/SVG stroke extraction -> stroke ordering
+line-art normalization -> raster/SVG stroke extraction -> natural block ordering
   |
   v
-whiteboard renderer -> optional color fill -> FFmpeg MP4
+whiteboard renderer -> block-local or whole-scene color fill -> FFmpeg MP4
 ```
 
 For uploaded photos:
@@ -105,6 +105,8 @@ Features:
 - hand-drawn text strokes
 - line-art snap completion with default threshold `170`
 - contour-aware color fill
+- style-controlled `color_fill_scope`: `block` for object-local color beats or
+  `scene` for one registered whole-frame background/color pass
 - FFmpeg MP4 encoding
 
 ### `pipeline.py`
@@ -115,6 +117,11 @@ Resumable script-to-video orchestration:
 - generate scene images
 - render scene clips
 - compose final MP4
+
+The resolved style snapshot owns `color_fill_scope` unless `run` receives an
+explicit `--color-fill-scope` override. It participates in the render
+fingerprint, so switching scope reuses planning, color storyboards, extracted
+line art, and narration while invalidating scene clips and composition.
 
 ### `compose.py`
 
@@ -156,6 +163,32 @@ whiteboard render-image lineart.png \
 
 The line-art and source image should share the same canvas size to avoid color
 misalignment. Local line-art extraction preserves source dimensions.
+
+`block-speedpaint` supports two color scopes:
+
+- `block`: each natural object block runs coarse contour, detail, and local
+  color in its own overlapping window. This is best for sparse whiteboard art
+  whose background is mostly untouched paper.
+- `scene`: natural object blocks still own coarse and detail stroke motion, but
+  they do not reveal bounded color rectangles. Line drawing occupies roughly
+  the first 72% of the drawing interval; one full-canvas registered color pass
+  starts near 68%, overlaps the last details by about 4%, and finishes at the
+  end of the interval. The final tail hold remains outside this drawing clock.
+
+The full-canvas pass includes the actual source background instead of filtering
+it through the illustration-foreground heuristic. This matters for full-bleed,
+low-saturation graphite and watercolor scenes: their border color is part of
+the intended environment, not a collection of foreground blocks. Style 9,
+`anime-graphite`, therefore defaults to `scene`; other recipes retain `block`
+unless they explicitly opt in. Narration timing cues pace both scopes through
+the same normalized clock, and gaps hold the current visual state.
+
+Scene generation and rendering share the same contract. A full-bleed prompt
+should request one continuous, low-detail environmental backdrop with complete
+foreground subjects. It should reject panels, frames, separate rectangular
+scenic cutouts, and unrelated background islands. This prompt constraint keeps
+the image readable; `scene` scope then guarantees that the registered backdrop
+is revealed as one layer rather than partitioned by inferred object bounds.
 
 ## Model Integration Boundary
 

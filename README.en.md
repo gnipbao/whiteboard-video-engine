@@ -22,9 +22,33 @@ The engine focuses on the rendering layer: semantic line-art input, stroke traci
 - Local neural line-art providers for photos and illustrations.
 - Skeleton tracing, path smoothing, and short-stroke merging.
 - Built-in fixed-orientation hand cursors: `asian`, `black`, `children`, `white`.
-- Hand-drawn text support with `--draw-text`.
-- Contour-aware color fill from the original image.
+- Multiline CJK layout with stroke tracing and line-by-line wipe reveals.
+- Contour-aware color fill from the original image, either per natural object or as one registered whole-frame background/color pass.
+- Thirty built-in visual styles named for media and production methods, with explicit whiteboard-compatibility levels.
+- Doubao Voice 2 word timing can pace the drawing and produce an editable SRT.
 - CLI-first design for scripting, automation, and Codex integration.
+
+## Beyond The Reference Bitmap Wipe
+
+The reference [story-to-handdrawn-video](https://github.com/gnipbao/story-to-handdrawn-video)
+provides a useful Remotion style catalog and layered demo. This engine keeps the
+whiteboard-friendly visual vocabulary and turns it into a local production pipeline:
+
+| Dimension | Reference project | This engine |
+| --- | --- | --- |
+| Styles | 20 prompt styles | 30 versioned recipes with `native/adaptive/experimental` compatibility, aliases, deterministic recommendations, and inheritance |
+| Drawing motion | [LayerWipe](https://github.com/gnipbao/story-to-handdrawn-video/blob/main/src/LayerWipe.tsx) reveals bitmap layers with a horizontal `clip-path` | Extracts real line art, traces and orders strokes, draws coarse contour → detail by natural object, then selects per-block or whole-frame color reveal |
+| Object integrity | Fixed layer schedule | Connected subjects stay together; only genuinely independent objects become separate drawing blocks |
+| Image registration | Prepared monochrome, detail, and color layers | GPT Image 2 produces color only; local extraction from that same frame keeps line art and final color pixel-registered |
+| Story delivery | README workflow targets silent 3:4 H.264 | Arbitrary aspect ratios, explicit scene plans, Doubao Voice 2 timing, editable SRT, and optional burn-in |
+| Reuse | Select a built-in style | Inline direction or constrained JSON `extends`, with staged fingerprints for style snapshots, planner/model/template, assets, and renderer |
+
+These are not thirty labels over one image treatment: recipes affect composition,
+generation prompts, and maintained renderer controls. A renderer-only change rerenders
+video without unnecessarily recalling planning or image APIs. Adapted third-party
+recipes retain their MIT notices and are rewritten as generic media language; no sample
+artwork, brushes, or model weights are copied.
+
 
 ## Demo
 
@@ -145,6 +169,97 @@ whiteboard render-photo examples/cases/nature/pool.jpg \
   --color-fill contour-wipe
 ```
 
+## Visual Styles
+
+The engine ships 30 versioned visual recipes. A style controls storyboard
+guidance, paper, line language, palette, and a small set of safe renderer
+parameters; the resolved recipe is stored in the project snapshot and resume
+fingerprint. Styles are named only for media, materials, or composition
+methods—not artists. The style system does not bundle or download third-party
+sample images, reference boards, brush packs, or texture assets.
+
+Whiteboard compatibility means:
+
+- `native`: contours and color regions naturally fit line extraction, stroke rendering, and object blocks.
+- `adaptive`: the engine uses softer line or fill settings; render a short preview first.
+- `experimental`: dense texture, black masses, or weak contours can stress skeleton tracing, so results depend on the scene.
+
+The default is `warm-crayon-storybook`. `--style` also accepts an order number,
+Chinese or English name, or registered alias. `WHITEBOARD_STYLE` sets the
+default built-in style; an explicit CLI selection takes precedence.
+The reference project's `whiteboard-explainer`, `rawkid-crayon`, and
+`ms-paint-bad-doodle` ids remain available as compatibility aliases.
+
+Style 9, `anime-graphite`, defaults to `color_fill_scope=scene`. Characters and
+props still draw as complete natural line-art blocks, while the registered color
+frame is revealed only once from left to right across the whole canvas. This keeps
+snow, walls, streets, and sky from appearing as unrelated rectangular foreground
+patches. Prompts for full-bleed scenes should describe one continuous, low-detail
+environmental backdrop, never disconnected panels or rectangular scenic cutouts.
+
+### Standardized *Little Match Girl* preview
+
+To isolate the visual-language differences, every reference uses the same 16:9
+storyboard frame: a blue-hour snowy night in nineteenth-century Copenhagen,
+with the girl and matches at lower-left/center, the stove-and-grandmother vision
+at upper-right, and broad negative space between them. The five contact sheets
+cover all thirty styles in registry order.
+
+<p align="center">
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-01.png" alt="Styles 01–06 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-02.png" alt="Styles 07–12 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-03.png" alt="Styles 13–18 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-04.png" alt="Styles 19–24 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-05.png" alt="Styles 25–30 contact sheet" width="19%"></a>
+</p>
+
+[Open the complete visual-style gallery](docs/STYLE_GALLERY.md) for the canonical
+scene specification, all thirty styles, use cases, visual characteristics,
+recommendations, direct paths to every reference image, and the reproducible
+contact-sheet command. Codex's built-in image-generation tool produced each
+source image from its registered style recipe; labels are added only to the
+local contact sheets, so the source artwork remains clean for line extraction.
+
+List full metadata or filter by compatibility:
+
+```bash
+whiteboard list-styles
+whiteboard list-styles --compatibility native
+whiteboard list-styles --json
+```
+
+Get deterministic, local recommendations from script keywords without a model
+or network call:
+
+```bash
+whiteboard recommend-styles story.md --limit 5
+whiteboard recommend-styles story.md --json
+```
+
+Choose a recipe directly, or let the engine use the first recommendation:
+
+```bash
+whiteboard run story.md -o out/story.mp4 --style colored-pencil-diary
+whiteboard run story.md -o out/story.mp4 --style auto
+```
+
+You can also pass an inline visual description or load JSON that extends a
+built-in recipe. `--style`, `--custom-style`, and `--custom-style-file` are
+mutually exclusive. `--theme` is an additional per-story art direction and
+does not replace the production safety contract.
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --custom-style "Loose blue-pencil travel sketch, one warm-orange accent, broad white space"
+
+whiteboard run story.md -o out/story.mp4 \
+  --custom-style-file examples/custom-style.example.json \
+  --theme "Quiet early morning with restrained optimism"
+```
+
+See [Visual Style Sources and Custom Recipes](docs/visual-style-sources.md) for
+the JSON fields, provenance, and safety boundaries.
+
 ## CLI
 
 ```bash
@@ -152,18 +267,131 @@ whiteboard extract-lineart image.jpg -o lineart.png --provider auto
 whiteboard render-photo image.jpg -o output.mp4 --duration 15 --lineart-provider auto
 whiteboard render-image lineart.png -o output.mp4 --source-image image.jpg --source-fit exact
 whiteboard analyze-image lineart.png -o analysis.json --stroke-detail rich
+whiteboard list-styles
+whiteboard recommend-styles story.md
 whiteboard list-hands
 whiteboard doctor
 ```
 
-Common options:
+Reveal multiline Chinese text line by line:
 
-- `--stroke-detail balanced|rich|max`
+```bash
+whiteboard render-image lineart.png -o output.mp4 \
+  --draw-text-file caption.txt \
+  --draw-text-position top \
+  --draw-text-align left \
+  --draw-text-reveal line-wipe \
+  --draw-text-order before \
+  --hand none
+```
+
+Show a crayon sketch immediately, add detail horizontally, then restore color without stroke tracing:
+
+```bash
+whiteboard render-photo input.png -o output.mp4 \
+  --duration 10 --tail-color 4 \
+  --line-reveal detail-wipe \
+  --base-line-opacity 0.76 \
+  --color-fill left-to-right-gradient \
+  --hand none
+```
+
+When Codex has already produced the color storyboards, an explicit scene plan
+can bypass both OpenAI planning and image providers. The JSON root can be a
+scene array or `{ "scenes": [...] }`. Every item must contain `id`,
+`narration`, `image_prompt`, and a positive `duration_sec`; IDs must be ordered
+as `1..N` and map to `storyboards/scene_01.png` through `scene_NN.png`.
+Optional `annotations` contains at most two short labels with normalized `x`
+and `y` positions. Full narration is never embedded in the generated
+storyboard. By default it remains in an editable same-basename SRT; pass
+`--burn-subtitles` to also burn that SRT into the output MP4 while keeping the
+SRT beside it.
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --scene-plan scene-plan.json \
+  --storyboard-dir storyboards \
+  --width 1920 --height 1080 --fps 30 \
+  --lineart-provider auto \
+  --animation-preset block-speedpaint \
+  --tts-provider none
+```
+
+This silent combination does not require any API key. The explicit plan length
+takes precedence over `--scenes` and is included in resume fingerprints.
+
+Single-image rendering options (`render-photo` / `render-image`):
+
+- `--stroke-detail balanced|rich|max` (`rich` by default)
 - `--hand asian|black|children|white|procedural|none` (`asian` by default)
-- `--line-thickness 0|N` (`0` adapts to the source line art; a positive integer overrides it)
-- `--draw-text "Title"`
-- `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
-- `--lineart-provider auto|informative|anime2sketch`
+- `--line-thickness 0|N` (`0` by default; `0` adapts to the source line art and a positive integer overrides it)
+- `--block-fill-style crayon|clean|soft-wash|dry-brush` (`crayon` by default)
+- `--color-fill-scope block|scene` (`block` by default; `scene` keeps natural line-art blocks but reveals the background and final color as one whole-frame pass)
+- `--draw-text "Line one\nLine two"` or `--draw-text-file caption.txt`
+- `--draw-text-position top|center|bottom`
+- `--draw-text-align left|center|right`
+- `--draw-text-reveal stroke|line-wipe`
+- `--draw-text-order before|after`
+- `--draw-text-width`, `--draw-text-max-height`, `--draw-text-line-spacing`, `--draw-text-font-size`, `--draw-text-font`
+- `--color-fill contour-wipe|brush-scan|top-down-blocks|fade|left-to-right-gradient`
+- `--line-reveal stroke|detail-wipe`
+- `--base-line-opacity 0.0-1.0`
+- `render-photo --lineart-provider auto|informative|anime2sketch|anime|manga`
+
+Storyboard-planning and full-pipeline style options (`plan-script` / `run`):
+
+- `--style STYLE|auto` (built-in style, order, localized name, alias, or automatic recommendation)
+- `--custom-style "..."` / `--custom-style-file style.json` (mutually exclusive with `--style`)
+- `--theme "..."` (additional art direction for this story)
+
+Full-pipeline renderer overrides (`run` only):
+
+- When these options are omitted, `run` inherits them from the selected style recipe; each option below is an explicit override.
+- `--block-fill-style crayon|clean|soft-wash|dry-brush`
+- `--color-fill-scope block|scene` (`block` colors each natural object locally; `scene` colors the registered frame and continuous background as a whole)
+- `--stroke-detail balanced|rich|max`
+- `--line-thickness 0|N` (`0` selects automatic line sizing)
+- `--line-art-snap` / `--no-line-art-snap`, plus `--line-art-snap-threshold N`
+- `--max-draw-blocks N`, `--draw-blocks N` (`0` selects automatic grouping)
+- `--block-overlap 0..0.65`, `--block-order reading|source`
+- `--block-sequence 1,0,...` (explicit inferred-block order)
+- `--hand asian|black|children|white|procedural|none` (`asian` by default)
+
+With `scene` scope, natural-block line drawing occupies roughly the first 72%
+of the drawing interval. The whole-frame color pass starts near 68%, overlaps the
+last details by about 4%, and continues to the end of that interval. Narrated runs
+map the same proportions onto phrase timing, so real pauses hold the current frame
+instead of producing an abrupt color jump.
+
+Full-pipeline audio and subtitle options (`run` only):
+
+- `--tts-provider none|edge|doubao` (`none` produces a silent post-production master)
+- `--burn-subtitles` (burn the generated same-basename SRT into `-o` and keep the SRT)
+- `--subtitle-font` (default `sans-serif`)
+- `--subtitle-font-size` (default `16`)
+- `--subtitle-margin-v` (default `22`)
+- `--subtitle-outline` (default `1.6`)
+- `--captions` / `--no-captions` (deprecated compatibility no-ops; mutually exclusive with `--burn-subtitles`)
+
+With `--tts-provider doubao`, the engine requests Seed-TTS 2.0 word timing,
+groups it into readable phrase beats, and uses one clock for line art, detail,
+block color, and SRT. Measured speech controls narrated scene length; natural
+punctuation pauses briefly hold the drawing and the final visual tail stays
+subtitle-free. Exact alignment is cached in `audio/scene_NN.alignment.json` and
+invalidated when narration, voice, or synthesis settings change.
+
+Generate Doubao narration and also burn the retained sidecar subtitles into
+the MP4:
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --tts-provider doubao \
+  --burn-subtitles \
+  --subtitle-font sans-serif \
+  --subtitle-font-size 16 \
+  --subtitle-margin-v 22 \
+  --subtitle-outline 1.6
+```
 
 ## Line-Art Models
 
@@ -276,8 +504,14 @@ examples/cases/<case-name>/
 
 Do not commit model repositories, model weights, virtualenvs, generated work directories, or user uploads without redistribution permission.
 
+Visual style recipes contain text descriptions and numeric parameters only;
+they do not embed third-party sample art or brushes. See
+[docs/visual-style-sources.md](docs/visual-style-sources.md) for provenance and
+naming principles.
+
 Small curated demos belong under `examples/cases/`.
 
 ## License
 
-MIT. Upstream model code and weights keep their own licenses.
+MIT. Upstream model code, weights, and adapted recipes retain their own
+licenses and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
