@@ -22,8 +22,9 @@ The engine focuses on the rendering layer: semantic line-art input, stroke traci
 - Local neural line-art providers for photos and illustrations.
 - Skeleton tracing, path smoothing, and short-stroke merging.
 - Built-in fixed-orientation hand cursors: `asian`, `black`, `children`, `white`.
-- Hand-drawn text support with `--draw-text`.
+- Multiline CJK layout with stroke tracing and line-by-line wipe reveals.
 - Contour-aware color fill from the original image.
+- Doubao Voice 2 word timing can pace the drawing and produce an editable SRT.
 - CLI-first design for scripting, automation, and Codex integration.
 
 ## Demo
@@ -156,14 +157,96 @@ whiteboard list-hands
 whiteboard doctor
 ```
 
+Reveal multiline Chinese text line by line:
+
+```bash
+whiteboard render-image lineart.png -o output.mp4 \
+  --draw-text-file caption.txt \
+  --draw-text-position top \
+  --draw-text-align left \
+  --draw-text-reveal line-wipe \
+  --draw-text-order before \
+  --hand none
+```
+
+Show a crayon sketch immediately, add detail horizontally, then restore color without stroke tracing:
+
+```bash
+whiteboard render-photo input.png -o output.mp4 \
+  --duration 10 --tail-color 4 \
+  --line-reveal detail-wipe \
+  --base-line-opacity 0.76 \
+  --color-fill left-to-right-gradient \
+  --hand none
+```
+
+When Codex has already produced the color storyboards, an explicit scene plan
+can bypass both OpenAI planning and image providers. The JSON root can be a
+scene array or `{ "scenes": [...] }`. Every item must contain `id`,
+`narration`, `image_prompt`, and a positive `duration_sec`; IDs must be ordered
+as `1..N` and map to `storyboards/scene_01.png` through `scene_NN.png`.
+Optional `annotations` contains at most two short labels with normalized `x`
+and `y` positions. Full narration is never embedded in the generated
+storyboard. By default it remains in an editable same-basename SRT; pass
+`--burn-subtitles` to also burn that SRT into the output MP4 while keeping the
+SRT beside it.
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --scene-plan scene-plan.json \
+  --storyboard-dir storyboards \
+  --width 1920 --height 1080 --fps 30 \
+  --lineart-provider auto \
+  --animation-preset block-speedpaint \
+  --tts-provider none
+```
+
+This silent combination does not require any API key. The explicit plan length
+takes precedence over `--scenes` and is included in resume fingerprints.
+
 Common options:
 
 - `--stroke-detail balanced|rich|max`
 - `--hand asian|black|children|white|procedural|none` (`asian` by default)
 - `--line-thickness 0|N` (`0` adapts to the source line art; a positive integer overrides it)
-- `--draw-text "Title"`
+- `--draw-text "Line one\nLine two"` or `--draw-text-file caption.txt`
+- `--draw-text-position top|center|bottom`
+- `--draw-text-align left|center|right`
+- `--draw-text-reveal stroke|line-wipe`
+- `--draw-text-order before|after`
+- `--draw-text-width`, `--draw-text-max-height`, `--draw-text-line-spacing`, `--draw-text-font-size`, `--draw-text-font`
 - `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
+- `--line-reveal stroke|detail-wipe`
+- `--base-line-opacity 0.0-1.0`
+- `--tts-provider none|edge|doubao` (`none` produces a silent post-production master)
+- `--burn-subtitles` (burn the generated same-basename SRT into `-o` and keep the SRT)
+- `--subtitle-font` (default `sans-serif`)
+- `--subtitle-font-size` (default `16`)
+- `--subtitle-margin-v` (default `22`)
+- `--subtitle-outline` (default `1.6`)
+- `--captions` / `--no-captions` (deprecated compatibility no-ops; mutually exclusive with `--burn-subtitles`)
+- `--color-fill left-to-right-gradient` (soft left-to-right source-color reveal)
 - `--lineart-provider auto|informative|anime2sketch`
+
+With `--tts-provider doubao`, the engine requests Seed-TTS 2.0 word timing,
+groups it into readable phrase beats, and uses one clock for line art, detail,
+block color, and SRT. Measured speech controls narrated scene length; natural
+punctuation pauses briefly hold the drawing and the final visual tail stays
+subtitle-free. Exact alignment is cached in `audio/scene_NN.alignment.json` and
+invalidated when narration, voice, or synthesis settings change.
+
+Generate Doubao narration and also burn the retained sidecar subtitles into
+the MP4:
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --tts-provider doubao \
+  --burn-subtitles \
+  --subtitle-font sans-serif \
+  --subtitle-font-size 16 \
+  --subtitle-margin-v 22 \
+  --subtitle-outline 1.6
+```
 
 ## Line-Art Models
 

@@ -16,8 +16,9 @@
 - 支持本地神经网络线稿提取，适配照片、插画和动漫图。
 - 支持骨架追踪、路径平滑和短线合并。
 - 内置固定角度手势：`asian`、`black`、`children`、`white`。
-- 支持 `--draw-text` 将短标题转换为手写路径。
+- 支持多行中文自动排版、手写路径和逐行擦显。
 - 支持基于原图的轮廓感上色。
+- 支持豆包语音 2 词级时间戳驱动手绘节奏，并输出独立 SRT。
 - CLI 优先，方便脚本化、自动化和 Codex 集成。
 
 ## 效果演示
@@ -150,14 +151,100 @@ whiteboard list-hands
 whiteboard doctor
 ```
 
+多行中文逐行擦显：
+
+```bash
+whiteboard render-image lineart.png -o output.mp4 \
+  --draw-text-file caption.txt \
+  --draw-text-position top \
+  --draw-text-align left \
+  --draw-text-reveal line-wipe \
+  --draw-text-order before \
+  --hand none
+```
+
+蜡笔插画直接显线稿、横向补细节并填色（不使用逐笔 stroke）：
+
+```bash
+whiteboard render-photo input.png -o output.mp4 \
+  --duration 10 --tail-color 4 \
+  --line-reveal detail-wipe \
+  --base-line-opacity 0.76 \
+  --color-fill left-to-right-gradient \
+  --hand none
+```
+
+使用 Codex 已生成的分镜彩图和显式分镜计划时，可以完全跳过 OpenAI
+分镜规划与图片 Provider，只初始化所选的配音 Provider。`scene-plan.json`
+既可以是下面的数组，也可以用 `{ "scenes": [...] }` 包一层；ID 必须按
+`1..N` 连续排列，并对应 `storyboards/scene_01.png` 至 `scene_NN.png`：
+
+```json
+[
+  {
+    "id": 1,
+    "narration": "山上的小庙里，住着三个和尚。",
+    "image_prompt": "Three young monks in a mountain temple",
+    "duration_sec": 7.5
+  }
+]
+```
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --scene-plan scene-plan.json \
+  --storyboard-dir storyboards \
+  --width 1920 --height 1080 --fps 30 \
+  --lineart-provider auto \
+  --animation-preset block-speedpaint \
+  --tts-provider none
+```
+
+这条组合路径不需要任何 API Key。`--scene-plan` 中的场景数量是最终
+场景数，优先于 `--scenes`；修改计划、彩图、声音或渲染参数后使用
+`--resume`，指纹会只重做受影响的阶段。
+
 常用参数：
 
 - `--stroke-detail balanced|rich|max`
 - `--hand asian|black|children|white|procedural|none`（默认 `asian`）
 - `--line-thickness 0|N`（默认 `0`，根据线稿粗细自动适配；正整数为手动覆盖）
-- `--draw-text "标题"`
+- `--draw-text "第一行\n第二行"` 或 `--draw-text-file caption.txt`
+- `--draw-text-position top|center|bottom`
+- `--draw-text-align left|center|right`
+- `--draw-text-reveal stroke|line-wipe`
+- `--draw-text-order before|after`
+- `--draw-text-width`、`--draw-text-max-height`、`--draw-text-line-spacing`、`--draw-text-font-size`、`--draw-text-font`
 - `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
+- `--line-reveal stroke|detail-wipe`
+- `--base-line-opacity 0.0-1.0`
+- `--color-fill left-to-right-gradient`（从左向右柔边恢复原色）
 - `--lineart-provider auto|informative|anime2sketch`
+- `--tts-provider none|edge|doubao`（`none` 输出后期配音用的静默母版）
+- `--burn-subtitles`（把自动生成的同名 SRT 烧录进 `-o` MP4，同时保留 SRT）
+- `--subtitle-font`（默认 `sans-serif`）
+- `--subtitle-font-size`（默认 `16`）
+- `--subtitle-margin-v`（默认 `22`）
+- `--subtitle-outline`（默认 `1.6`）
+- `--captions` / `--no-captions`（弃用兼容 no-op；与 `--burn-subtitles` 互斥）
+
+选择 `--tts-provider doubao` 时，引擎请求 Seed-TTS 2.0 的词级时间戳，
+将其合并成易读短语并同时驱动线稿、细节、分块上色与 SRT。真实语音时长
+决定有声场景长度；标点停顿会短暂停笔，尾帧停留不显示字幕。精确对齐缓存
+保存在 `audio/scene_NN.alignment.json`，变更文案、音色或合成参数后会自动失效。
+
+默认情况下，完整旁白不会嵌入生成的分镜图或成片，而是写入同名可编辑
+SRT。使用豆包配音并希望成片自带字幕时，可显式烧录；SRT 仍会保留：
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --tts-provider doubao \
+  --burn-subtitles \
+  --subtitle-font sans-serif \
+  --subtitle-font-size 16 \
+  --subtitle-margin-v 22 \
+  --subtitle-outline 1.6
+```
 
 ## 线稿模型
 
