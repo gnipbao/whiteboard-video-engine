@@ -54,6 +54,8 @@ def test_render_commands_default_to_asian_hand_and_adaptive_line_width():
 
     assert photo.hand == render.hand == run.hand == "asian"
     assert photo.line_thickness == render.line_thickness == 0
+    assert photo.color_fill_scope == render.color_fill_scope == "block"
+    assert run.color_fill_scope is None
 
 
 def test_list_styles_json_is_stable_machine_readable(capsys):
@@ -118,6 +120,8 @@ def test_run_accepts_style_theme_and_renderer_overrides():
             "雨天回忆",
             "--block-fill-style",
             "dry-brush",
+            "--color-fill-scope",
+            "scene",
             "--stroke-detail",
             "max",
             "--line-thickness",
@@ -139,6 +143,7 @@ def test_run_accepts_style_theme_and_renderer_overrides():
     assert args.style == "anime-graphite"
     assert args.theme == "雨天回忆"
     assert args.block_fill_style == "dry-brush"
+    assert args.color_fill_scope == "scene"
     assert args.stroke_detail == "max"
     assert args.line_thickness == 2
     assert args.line_art_snap is False
@@ -189,11 +194,14 @@ def test_render_image_passes_block_fill_style_to_renderer(monkeypatch, tmp_path:
                 str(tmp_path / "out.mp4"),
                 "--block-fill-style",
                 "dry-brush",
+                "--color-fill-scope",
+                "scene",
             ]
         )
         == 0
     )
     assert captured["block_fill_style"] == "dry-brush"
+    assert captured["color_fill_scope"] == "scene"
 
 
 def test_render_photo_passes_block_fill_style_to_renderer(monkeypatch, tmp_path: Path):
@@ -220,11 +228,14 @@ def test_render_photo_passes_block_fill_style_to_renderer(monkeypatch, tmp_path:
                 str(tmp_path / "out.mp4"),
                 "--block-fill-style",
                 "clean",
+                "--color-fill-scope",
+                "scene",
             ]
         )
         == 0
     )
     assert captured["block_fill_style"] == "clean"
+    assert captured["color_fill_scope"] == "scene"
 
 
 def test_run_passes_visual_style_and_renderer_overrides(monkeypatch, tmp_path: Path):
@@ -255,6 +266,8 @@ def test_run_passes_visual_style_and_renderer_overrides(monkeypatch, tmp_path: P
                 "雨天回忆",
                 "--block-fill-style",
                 "soft-wash",
+                "--color-fill-scope",
+                "scene",
                 "--stroke-detail",
                 "max",
                 "--line-thickness",
@@ -271,6 +284,7 @@ def test_run_passes_visual_style_and_renderer_overrides(monkeypatch, tmp_path: P
     assert captured["custom_style_file"] is None
     assert captured["visual_theme"] == "雨天回忆"
     assert captured["block_fill_style"] == "soft-wash"
+    assert captured["color_fill_scope"] == "scene"
     assert captured["stroke_detail"] == "max"
     assert captured["line_thickness"] == 2
     assert captured["line_art_snap"] is False

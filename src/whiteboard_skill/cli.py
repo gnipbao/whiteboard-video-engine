@@ -205,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
                 block_order=args.block_order,
                 block_sequence=args.block_sequence,
                 block_fill_style=args.block_fill_style,
+                color_fill_scope=args.color_fill_scope,
             )
             print(args.output)
             return 0
@@ -258,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
                 block_order=args.block_order,
                 block_sequence=args.block_sequence,
                 block_fill_style=args.block_fill_style,
+                color_fill_scope=args.color_fill_scope,
             )
             print(args.output)
             return 0
@@ -296,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
                 custom_style_file=args.custom_style_file,
                 visual_theme=args.theme,
                 block_fill_style=args.block_fill_style,
+                color_fill_scope=args.color_fill_scope,
                 stroke_detail=args.stroke_detail,
                 line_thickness=args.line_thickness,
                 line_art_snap=args.line_art_snap,
@@ -627,6 +630,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["crayon", "clean", "soft-wash", "dry-brush"],
         default="crayon",
     )
+    photo.add_argument(
+        "--color-fill-scope",
+        choices=["block", "scene"],
+        default="block",
+        help="Fill each natural object separately, or reveal one registered whole-scene color plate.",
+    )
     _add_draw_text_arguments(photo)
     _add_block_animation_arguments(photo)
     photo.add_argument("--hand", default="asian")
@@ -722,6 +731,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--block-fill-style",
         choices=["crayon", "clean", "soft-wash", "dry-brush"],
         default="crayon",
+    )
+    render.add_argument(
+        "--color-fill-scope",
+        choices=["block", "scene"],
+        default="block",
+        help="Fill each natural object separately, or reveal one registered whole-scene color plate.",
     )
     _add_draw_text_arguments(render)
     _add_block_animation_arguments(render)
@@ -828,6 +843,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["crayon", "clean", "soft-wash", "dry-brush"],
         default=None,
         help="Override the selected style's block color texture.",
+    )
+    run.add_argument(
+        "--color-fill-scope",
+        choices=["block", "scene"],
+        default=None,
+        help="Override block-local versus whole-scene registered color reveal.",
     )
     run.add_argument(
         "--stroke-detail", choices=["balanced", "rich", "max"], default=None

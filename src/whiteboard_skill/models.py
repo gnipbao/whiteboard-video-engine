@@ -14,7 +14,7 @@ from .styles import DEFAULT_STYLE_ID, LEGACY_STYLE_SUFFIX
 # Kept as a public compatibility alias for third-party planners. New code uses
 # ``build_storyboard_prompt`` and a resolved ``VisualStyle`` instead.
 STYLE_SUFFIX = LEGACY_STYLE_SUFFIX
-CURRENT_PROJECT_SCHEMA_VERSION = 3
+CURRENT_PROJECT_SCHEMA_VERSION = 4
 
 
 class TextRole(str, Enum):
@@ -163,6 +163,7 @@ class Project(BaseModel):
     block_order: str = "reading"
     block_sequence: list[int] | None = None
     block_fill_style: Literal["crayon", "clean", "soft-wash", "dry-brush"] = "crayon"
+    color_fill_scope: Literal["block", "scene"] = "block"
     stroke_detail: Literal["balanced", "rich", "max"] = "rich"
     line_thickness: int = Field(default=0, ge=0, le=16)
     line_art_snap: bool = True
@@ -231,7 +232,12 @@ class Project(BaseModel):
             payload.setdefault("line_thickness", 0)
             payload.setdefault("line_art_snap", True)
             payload.setdefault("line_art_snap_threshold", 235)
-            payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+        if version < 4:
+            # Historical renders used object-local color masks. Preserve that
+            # appearance when loading an old project instead of silently opting
+            # it into a newer style's whole-scene color treatment.
+            payload.setdefault("color_fill_scope", "block")
+        payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
         return payload
 
     @property

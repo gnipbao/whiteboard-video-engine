@@ -23,7 +23,7 @@ The engine focuses on the rendering layer: semantic line-art input, stroke traci
 - Skeleton tracing, path smoothing, and short-stroke merging.
 - Built-in fixed-orientation hand cursors: `asian`, `black`, `children`, `white`.
 - Multiline CJK layout with stroke tracing and line-by-line wipe reveals.
-- Contour-aware color fill from the original image.
+- Contour-aware color fill from the original image, either per natural object or as one registered whole-frame background/color pass.
 - Thirty built-in visual styles named for media and production methods, with explicit whiteboard-compatibility levels.
 - Doubao Voice 2 word timing can pace the drawing and produce an editable SRT.
 - CLI-first design for scripting, automation, and Codex integration.
@@ -37,7 +37,7 @@ whiteboard-friendly visual vocabulary and turns it into a local production pipel
 | Dimension | Reference project | This engine |
 | --- | --- | --- |
 | Styles | 20 prompt styles | 30 versioned recipes with `native/adaptive/experimental` compatibility, aliases, deterministic recommendations, and inheritance |
-| Drawing motion | [LayerWipe](https://github.com/gnipbao/story-to-handdrawn-video/blob/main/src/LayerWipe.tsx) reveals bitmap layers with a horizontal `clip-path` | Extracts real line art, traces and orders strokes, then animates coarse contour → detail → local color by natural object |
+| Drawing motion | [LayerWipe](https://github.com/gnipbao/story-to-handdrawn-video/blob/main/src/LayerWipe.tsx) reveals bitmap layers with a horizontal `clip-path` | Extracts real line art, traces and orders strokes, draws coarse contour → detail by natural object, then selects per-block or whole-frame color reveal |
 | Object integrity | Fixed layer schedule | Connected subjects stay together; only genuinely independent objects become separate drawing blocks |
 | Image registration | Prepared monochrome, detail, and color layers | GPT Image 2 produces color only; local extraction from that same frame keeps line art and final color pixel-registered |
 | Story delivery | README workflow targets silent 3:4 H.264 | Arbitrary aspect ratios, explicit scene plans, Doubao Voice 2 timing, editable SRT, and optional burn-in |
@@ -190,6 +190,13 @@ default built-in style; an explicit CLI selection takes precedence.
 The reference project's `whiteboard-explainer`, `rawkid-crayon`, and
 `ms-paint-bad-doodle` ids remain available as compatibility aliases.
 
+Style 9, `anime-graphite`, defaults to `color_fill_scope=scene`. Characters and
+props still draw as complete natural line-art blocks, while the registered color
+frame is revealed only once from left to right across the whole canvas. This keeps
+snow, walls, streets, and sky from appearing as unrelated rectangular foreground
+patches. Prompts for full-bleed scenes should describe one continuous, low-detail
+environmental backdrop, never disconnected panels or rectangular scenic cutouts.
+
 ### Standardized *Little Match Girl* preview
 
 To isolate the visual-language differences, every reference uses the same 16:9
@@ -319,6 +326,7 @@ Single-image rendering options (`render-photo` / `render-image`):
 - `--hand asian|black|children|white|procedural|none` (`asian` by default)
 - `--line-thickness 0|N` (`0` by default; `0` adapts to the source line art and a positive integer overrides it)
 - `--block-fill-style crayon|clean|soft-wash|dry-brush` (`crayon` by default)
+- `--color-fill-scope block|scene` (`block` by default; `scene` keeps natural line-art blocks but reveals the background and final color as one whole-frame pass)
 - `--draw-text "Line one\nLine two"` or `--draw-text-file caption.txt`
 - `--draw-text-position top|center|bottom`
 - `--draw-text-align left|center|right`
@@ -340,6 +348,7 @@ Full-pipeline renderer overrides (`run` only):
 
 - When these options are omitted, `run` inherits them from the selected style recipe; each option below is an explicit override.
 - `--block-fill-style crayon|clean|soft-wash|dry-brush`
+- `--color-fill-scope block|scene` (`block` colors each natural object locally; `scene` colors the registered frame and continuous background as a whole)
 - `--stroke-detail balanced|rich|max`
 - `--line-thickness 0|N` (`0` selects automatic line sizing)
 - `--line-art-snap` / `--no-line-art-snap`, plus `--line-art-snap-threshold N`
@@ -347,6 +356,12 @@ Full-pipeline renderer overrides (`run` only):
 - `--block-overlap 0..0.65`, `--block-order reading|source`
 - `--block-sequence 1,0,...` (explicit inferred-block order)
 - `--hand asian|black|children|white|procedural|none` (`asian` by default)
+
+With `scene` scope, natural-block line drawing occupies roughly the first 72%
+of the drawing interval. The whole-frame color pass starts near 68%, overlaps the
+last details by about 4%, and continues to the end of that interval. Narrated runs
+map the same proportions onto phrase timing, so real pauses hold the current frame
+instead of producing an abrupt color jump.
 
 Full-pipeline audio and subtitle options (`run` only):
 

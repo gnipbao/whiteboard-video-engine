@@ -154,17 +154,18 @@ def test_legacy_audio_timing_is_migrated_as_unknown_not_authored():
         }
     )
 
-    assert project.schema_version == 3
+    assert project.schema_version == 4
     assert project.visual_style_id == "warm-crayon-storybook"
+    assert project.color_fill_scope == "block"
     assert project.scenes[0].planned_duration_sec == 0.0
     assert project.scenes[0].timing_source == "unknown"
 
 
 def test_project_rejects_future_schema_version():
-    with pytest.raises(ValueError, match="newer than supported version 3"):
+    with pytest.raises(ValueError, match="newer than supported version 4"):
         Project.model_validate(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "title": "future",
                 "scenes": [],
             }
@@ -175,7 +176,7 @@ def test_project_rejects_unknown_persisted_fields():
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         Project.model_validate(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "title": "unknown-field",
                 "scenes": [],
                 "future_renderer_setting": True,

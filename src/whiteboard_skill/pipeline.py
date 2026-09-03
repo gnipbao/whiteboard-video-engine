@@ -69,6 +69,7 @@ def run_pipeline(
     block_order: str | None = None,
     block_sequence: list[int] | None = None,
     block_fill_style: str | None = None,
+    color_fill_scope: str | None = None,
     stroke_detail: str | None = None,
     line_thickness: int | None = None,
     line_art_snap: bool | None = None,
@@ -192,6 +193,13 @@ def run_pipeline(
         if prior_render is not None
         else render_recipe.block_fill_style
     )
+    resolved_color_fill_scope = (
+        color_fill_scope
+        if color_fill_scope is not None
+        else prior_render.color_fill_scope
+        if prior_render is not None
+        else render_recipe.color_fill_scope
+    )
     resolved_stroke_detail = (
         stroke_detail
         if stroke_detail is not None
@@ -239,6 +247,8 @@ def run_pipeline(
         raise ValueError(
             "block_fill_style must be crayon, clean, soft-wash, or dry-brush"
         )
+    if resolved_color_fill_scope not in {"block", "scene"}:
+        raise ValueError("color_fill_scope must be block or scene")
     if resolved_stroke_detail not in {"balanced", "rich", "max"}:
         raise ValueError("stroke_detail must be balanced, rich, or max")
     if not 0 <= resolved_line_thickness <= 16:
@@ -361,6 +371,7 @@ def run_pipeline(
             block_order=resolved_block_order,
             block_sequence=resolved_block_sequence,
             block_fill_style=resolved_block_fill_style,
+            color_fill_scope=resolved_color_fill_scope,
             stroke_detail=resolved_stroke_detail,
             line_thickness=resolved_line_thickness,
             line_art_snap=resolved_line_art_snap,
@@ -396,6 +407,7 @@ def run_pipeline(
     project.block_order = resolved_block_order
     project.block_sequence = resolved_block_sequence
     project.block_fill_style = resolved_block_fill_style
+    project.color_fill_scope = resolved_color_fill_scope
     project.stroke_detail = resolved_stroke_detail
     project.line_thickness = resolved_line_thickness
     project.line_art_snap = resolved_line_art_snap
@@ -533,6 +545,7 @@ def run_pipeline(
                 block_order=project.block_order,
                 block_sequence=project.block_sequence,
                 block_fill_style=project.block_fill_style,
+                color_fill_scope=project.color_fill_scope,
                 stroke_detail=project.stroke_detail,
                 line_thickness=project.line_thickness,
                 line_art_snap=project.line_art_snap,
@@ -682,7 +695,7 @@ def _render_fingerprint(
             hand_identity["sha256"] = file_sha256(hand_path)
     return stable_fingerprint(
         {
-            "schema": 4,
+            "schema": 5,
             "annotations": [
                 annotation.model_dump(mode="json")
                 for annotation in (
@@ -701,6 +714,7 @@ def _render_fingerprint(
             ],
             "animation_preset": project.animation_preset,
             "block_fill_style": project.block_fill_style,
+            "color_fill_scope": project.color_fill_scope,
             "block_order": project.block_order,
             "block_overlap": project.block_overlap,
             "block_sequence": project.block_sequence,

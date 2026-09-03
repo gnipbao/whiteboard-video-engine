@@ -83,6 +83,7 @@ palette, avoid, render
 | Field | Accepted values |
 | --- | --- |
 | `block_fill_style` | `crayon`, `clean`, `soft-wash`, `dry-brush` |
+| `color_fill_scope` | `block` or `scene` |
 | `stroke_detail` | `balanced`, `rich`, `max` |
 | `line_thickness` | integer `0..16`; `0` keeps automatic sizing |
 | `line_art_snap` | boolean |
@@ -91,6 +92,22 @@ palette, avoid, render
 | `draw_blocks` | integer `1..24` or `null` |
 | `block_overlap` | number `0..0.65` |
 | `block_order` | `reading` or `source` |
+
+`block` keeps the established object-local sequence: coarse contour, detail,
+then color inside each natural block. `scene` leaves the coarse/detail grouping
+unchanged but defers color to one registered full-frame left-to-right pass. Use
+`scene` when the generated art has a continuous full-bleed environment; it
+prevents low-saturation sky, snow, walls, or washes from being revealed as
+rectangular object regions. The built-in style 9, `anime-graphite`, defaults to
+`scene`; the other built-ins keep their declared/default scope.
+
+For a recipe that uses `scene`, its planner guidance should request one
+continuous, low-detail background and explicitly avoid panels, page frames,
+rectangular scenic cutouts, or disconnected backdrop islands. Foreground people
+and props must still be complete and spatially readable because their line art
+continues to use natural object grouping. The default timing reserves roughly
+the first 72% of the drawing interval for those block lines and begins the
+whole-scene color pass near 68%, creating about 4% detail/color overlap.
 
 Unknown keys are rejected. A custom style file is limited to 64 KiB and an
 inline description to 4,000 characters. If `extends` is omitted, the JSON

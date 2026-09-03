@@ -30,6 +30,7 @@ def test_run_defaults_to_gpt_image_2_color_pipeline_and_block_animation():
     assert args.block_overlap is None
     assert args.block_order is None
     assert args.block_fill_style is None
+    assert args.color_fill_scope is None
     assert args.stroke_detail is None
     assert args.line_thickness is None
     assert args.line_art_snap is None
@@ -309,6 +310,7 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
     assert project.visual_style_snapshot["id"] == "ink-wash-minimal"
     assert project.visual_theme == "合作化解缺水"
     assert project.block_fill_style == "dry-brush"
+    assert project.color_fill_scope == "block"
     assert project.stroke_detail == "max"
     assert project.line_thickness == 2
     assert project.max_draw_blocks == 5
@@ -323,6 +325,7 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
     assert [item.text for item in render_calls[0]["timing_cues"]] == ["水缸已经见底。"]
     assert render_calls[0]["duration"] == 5.0
     assert render_calls[0]["block_fill_style"] == "dry-brush"
+    assert render_calls[0]["color_fill_scope"] == "block"
     assert render_calls[0]["stroke_detail"] == "max"
     assert render_calls[0]["line_thickness"] == 2
     assert render_calls[0]["max_draw_blocks"] == 5
@@ -366,6 +369,7 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
     assert resumed.visual_style_id == "ink-wash-minimal"
     assert resumed.visual_theme == "合作化解缺水"
     assert resumed.block_fill_style == "dry-brush"
+    assert resumed.color_fill_scope == "block"
     assert resumed.stroke_detail == "max"
     assert resumed.line_thickness == 2
 
@@ -485,12 +489,19 @@ def test_render_fingerprint_tracks_annotation_content(tmp_path: Path):
         **common,
     )
     clean_fill = project.model_copy(update={"block_fill_style": "clean"})
+    scene_fill = project.model_copy(update={"color_fill_scope": "scene"})
     dense_lines = project.model_copy(
         update={"stroke_detail": "max", "line_thickness": 2}
     )
     assert _render_fingerprint(scene=plain, **common) != _render_fingerprint(
         scene=plain,
         project=clean_fill,
+        hand_style="none",
+        hand_scale=1.0,
+    )
+    assert _render_fingerprint(scene=plain, **common) != _render_fingerprint(
+        scene=plain,
+        project=scene_fill,
         hand_style="none",
         hand_scale=1.0,
     )

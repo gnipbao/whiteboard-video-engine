@@ -17,7 +17,7 @@
 - 支持骨架追踪、路径平滑和短线合并。
 - 内置固定角度手势：`asian`、`black`、`children`、`white`。
 - 支持多行中文自动排版、手写路径和逐行擦显。
-- 支持基于原图的轮廓感上色。
+- 支持基于原图的轮廓感上色，可按自然物体分块，也可将完整背景作为全画幅色层统一显现。
 - 内置 30 种以画材和制作方法命名的视觉风格，并按白板渲染适配度分级。
 - 支持豆包语音 2 词级时间戳驱动手绘节奏，并输出独立 SRT。
 - CLI 优先，方便脚本化、自动化和 Codex 集成。
@@ -31,7 +31,7 @@
 | 维度 | 参考项目 | 本引擎 |
 | --- | --- | --- |
 | 风格 | 20 个提示词风格 | 30 个版本化配方，含 `native/adaptive/experimental` 适配等级、别名、自动推荐和自定义继承 |
-| 手绘运动 | [LayerWipe](https://github.com/gnipbao/story-to-handdrawn-video/blob/main/src/LayerWipe.tsx) 用 `clip-path` 横向擦显位图层 | 从真实线稿提取笔画、排序路径，再按自然对象执行“大轮廓 → 细节 → 局部填色” |
+| 手绘运动 | [LayerWipe](https://github.com/gnipbao/story-to-handdrawn-video/blob/main/src/LayerWipe.tsx) 用 `clip-path` 横向擦显位图层 | 从真实线稿提取笔画、排序路径，先按自然对象绘制“大轮廓 → 细节”，再可选逐块填色或全画幅统一上色 |
 | 物体完整性 | 固定图层时间表 | 连通对象优先成组，独立物体才分块，不为凑块数硬切人物或道具 |
 | 图像链路 | 预制黑白、细节与彩图层 | GPT Image 2 只出彩图，同一彩图在本地抽线，线稿与最终色层像素配准 |
 | 叙事交付 | README 主流程为 3:4 静音 H.264 | 任意画幅，支持显式分镜、豆包语音 2、词级节奏、可编辑 SRT 与可选烧字 |
@@ -180,6 +180,11 @@ whiteboard render-photo examples/cases/sports-illustration-anime2sketch/input.jp
 参考项目中的 `whiteboard-explainer`、`rawkid-crayon` 和
 `ms-paint-bad-doodle` 仍可作为兼容别名直接使用。
 
+第 9 个风格 `anime-graphite` 默认使用 `color_fill_scope=scene`。人物和道具的
+线稿仍按自然块绘制，但已配准的完整彩图只做一次全画幅从左到右显现，
+避免雪地、墙面、街景或天空被错当成多个矩形前景块。对这类全幅背景，
+分镜提示词应把环境写成一个连续、低细节的整体背景，不要生成彼此断开的画框或矩形景片。
+
 ### 《卖火柴的小女孩》统一风格预览
 
 为让差异只来自视觉语言，画廊使用同一幅 16:9 标准分镜：19 世纪哥本哈根的
@@ -301,6 +306,7 @@ whiteboard run story.md -o out/story.mp4 \
 - `--hand asian|black|children|white|procedural|none`（默认 `asian`）
 - `--line-thickness 0|N`（默认 `0`；`0` 根据线稿粗细自动适配，正整数为手动覆盖）
 - `--block-fill-style crayon|clean|soft-wash|dry-brush`（默认 `crayon`）
+- `--color-fill-scope block|scene`（默认 `block`；`scene` 保留自然线稿分块，但将背景与最终色层作为一次全画幅显现）
 - `--draw-text "第一行\n第二行"` 或 `--draw-text-file caption.txt`
 - `--draw-text-position top|center|bottom`
 - `--draw-text-align left|center|right`
@@ -322,6 +328,7 @@ whiteboard run story.md -o out/story.mp4 \
 
 - 未显式传入以下选项时，`run` 继承所选风格配方；这些选项用于逐项覆盖。
 - `--block-fill-style crayon|clean|soft-wash|dry-brush`
+- `--color-fill-scope block|scene`（`block` 在每个自然块内上色；`scene` 将配准彩图和连续背景整体上色）
 - `--stroke-detail balanced|rich|max`
 - `--line-thickness 0|N`（`0` 为自动线宽）
 - `--line-art-snap` / `--no-line-art-snap`，以及 `--line-art-snap-threshold N`
@@ -329,6 +336,10 @@ whiteboard run story.md -o out/story.mp4 \
 - `--block-overlap 0..0.65`、`--block-order reading|source`
 - `--block-sequence 1,0,...`（显式指定推断块顺序）
 - `--hand asian|black|children|white|procedural|none`（默认 `asian`）
+
+`scene` 范围的默认节奏是：自然块线稿在绘画时段的前约 72% 完成，
+全画幅色层在约 68% 处开始，与最后细节重叠约 4% 后持续到绘画时段结束。
+有配音时，这些比例仍由同一组句子时间戳驱动，停顿处保持画面而不突然跳色。
 
 完整流水线音频与字幕参数（仅 `run`）：
 

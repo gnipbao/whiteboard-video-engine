@@ -1448,6 +1448,8 @@ def _crayon_reveal_alpha(
     cache: CrayonFillCache,
     bounds: tuple[int, int, int, int],
     region_mask: np.ndarray | None = None,
+    *,
+    include_background: bool = False,
 ) -> tuple[np.ndarray, float]:
     """Build one block's textured left-to-right reveal alpha."""
 
@@ -1462,7 +1464,8 @@ def _crayon_reveal_alpha(
         alpha.fill(1.0)
     edge = (alpha > 0.0) & (alpha < 1.0)
     alpha[edge] = np.clip(alpha[edge] + (cache.grain[edge] - 0.5) * 0.42, 0.0, 1.0)
-    alpha *= cache.foreground
+    if not include_background:
+        alpha *= cache.foreground
     if region_mask is not None:
         if region_mask.shape != alpha.shape:
             raise ValueError("Crayon region mask does not match canvas size")
@@ -1483,6 +1486,8 @@ def _block_fill_alpha(
     bounds: tuple[int, int, int, int],
     region_mask: np.ndarray,
     style: str,
+    *,
+    include_background: bool = False,
 ) -> tuple[np.ndarray, float]:
     """Build a temporally stable object-local reveal for one media family."""
 
@@ -1494,6 +1499,7 @@ def _block_fill_alpha(
             cache,
             bounds,
             region_mask=region_mask,
+            include_background=include_background,
         )
     profiles = {
         "clean": (0.035, 0.0, 0.02),
@@ -1519,7 +1525,8 @@ def _block_fill_alpha(
             0.0,
             1.0,
         )
-    alpha *= cache.foreground
+    if not include_background:
+        alpha *= cache.foreground
     alpha *= np.clip(region_mask, 0.0, 1.0)
     return alpha, lead
 
@@ -1822,6 +1829,7 @@ def render_block_story_scene(
     block_order: str = "reading",
     block_sequence: list[int] | None = None,
     block_fill_style: str = "crayon",
+    color_fill_scope: str = "block",
 ) -> None:
     """Render object blocks as outline, detail, then local crayon-color beats."""
 
@@ -1831,6 +1839,8 @@ def render_block_story_scene(
         raise ValueError("Block story duration and fps must be positive")
     if block_fill_style not in {"crayon", "clean", "soft-wash", "dry-brush"}:
         raise ValueError(f"Unsupported block fill style: {block_fill_style}")
+    if color_fill_scope not in {"block", "scene"}:
+        raise ValueError(f"Unsupported color fill scope: {color_fill_scope}")
     try:
         TextRole(text_role)
     except ValueError as exc:
@@ -1891,15 +1901,23 @@ def render_block_story_scene(
         animation_end,
     )
     has_caption = text_ink_mask is not None and text_ink_mask.getbbox() is not None
+    line_animation_end = (
+        animation_end * 0.72 if color_fill_scope == "scene" else animation_end
+    )
     windows = _block_windows(
         len(blocks),
         overlap=block_overlap,
         start=_block_timeline_start(has_caption, animation_end),
-        end=animation_end,
+        end=line_animation_end,
         weights=[block.ink_length for block in blocks],
     )
     states = _block_states(blocks, resolution, total_frames, windows)
     crayon_cache = _prepare_crayon_fill_cache(source)
+    scene_fill_region = (
+        np.ones((resolution[1], resolution[0]), dtype=np.float32)
+        if color_fill_scope == "scene"
+        else None
+    )
 
     aa_scale = 2 if max(resolution) <= 1280 else 1
     estimated_line_width = _estimate_line_art_width(
@@ -1973,9 +1991,14 @@ def render_block_story_scene(
             local_progresses: list[tuple[float, float, float]] = []
             for state, window in zip(states, windows, strict=True):
                 local = _phase_progress(story_t, window[0], window[1])
-                coarse_phase = _phase_progress(local, 0.0, 0.58)
-                detail_phase = _phase_progress(local, 0.36, 0.74)
-                fill_phase = _phase_progress(local, 0.68, 0.94)
+                if color_fill_scope == "scene":
+                    coarse_phase = _phase_progress(local, 0.0, 0.64)
+                    detail_phase = _phase_progress(local, 0.38, 1.0)
+                    fill_phase = 0.0
+                else:
+                    coarse_phase = _phase_progress(local, 0.0, 0.58)
+                    detail_phase = _phase_progress(local, 0.36, 0.74)
+                    fill_phase = _phase_progress(local, 0.68, 0.94)
                 coarse_pose = _advance_timeline(
                     draw,
                     state.coarse_timeline,
@@ -2038,22 +2061,51 @@ def render_block_story_scene(
             frame = line_frame
             fill_pose: tuple[tuple[float, float], float] | None = None
             combined_alpha: np.ndarray | None = None
-            for state, phases in zip(states, local_progresses, strict=True):
-                fill_phase = phases[2]
-                if fill_phase <= 0:
-                    continue
-                block_alpha, lead = _block_fill_alpha(
-                    fill_phase,
-                    crayon_cache,
-                    state.block.reveal_bounds,
-                    state.region_mask,
-                    block_fill_style,
+            if color_fill_scope == "scene":
+                assert scene_fill_region is not None
+                fill_phase = _phase_progress(
+                    story_t,
+                    animation_end * 0.68,
+                    animation_end,
                 )
-                if combined_alpha is None:
-                    combined_alpha = block_alpha.copy()
-                else:
-                    np.maximum(combined_alpha, block_alpha, out=combined_alpha)
-                if fill_phase < 1.0:
+                if fill_phase > 0:
+                    combined_alpha, lead = _block_fill_alpha(
+                        fill_phase,
+                        crayon_cache,
+                        (0, 0, resolution[0], resolution[1]),
+                        scene_fill_region,
+                        block_fill_style,
+                        include_background=True,
+                    )
+                    if fill_phase < 1.0:
+                        fill_pose = (
+                            (
+                                max(
+                                    0.0,
+                                    min(float(resolution[0] - 1), lead),
+                                ),
+                                float(resolution[1] - 1) / 2.0,
+                            ),
+                            0.0,
+                        )
+            else:
+                for state, phases in zip(states, local_progresses, strict=True):
+                    fill_phase = phases[2]
+                    if fill_phase <= 0:
+                        continue
+                    block_alpha, lead = _block_fill_alpha(
+                        fill_phase,
+                        crayon_cache,
+                        state.block.reveal_bounds,
+                        state.region_mask,
+                        block_fill_style,
+                    )
+                    if combined_alpha is None:
+                        combined_alpha = block_alpha.copy()
+                    else:
+                        np.maximum(combined_alpha, block_alpha, out=combined_alpha)
+                    if fill_phase >= 1.0:
+                        continue
                     _x0, y0, _x1, y1 = state.block.reveal_bounds
                     fill_pose = (
                         (
@@ -2409,6 +2461,7 @@ def render_image(
     block_order: str = "reading",
     block_sequence: list[int] | None = None,
     block_fill_style: str = "crayon",
+    color_fill_scope: str = "block",
 ) -> None:
     """Extract strokes from one image and render a scene MP4."""
 
@@ -2513,6 +2566,7 @@ def render_image(
             block_order=block_order,
             block_sequence=block_sequence,
             block_fill_style=block_fill_style,
+            color_fill_scope=color_fill_scope,
         )
         return
     if animation_preset != "classic":

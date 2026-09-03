@@ -462,6 +462,32 @@ def test_block_fill_media_profiles_stay_local_and_deterministic():
     assert not np.array_equal(clean, dry_brush)
 
 
+def test_scene_fill_scope_can_reveal_uniform_background_pixels():
+    source = Image.new("RGB", (40, 24), (228, 228, 228))
+    cache = whiteboard._prepare_crayon_fill_cache(source)
+    region = np.ones((24, 40), dtype=np.float32)
+
+    object_only, _lead = whiteboard._block_fill_alpha(
+        1.0,
+        cache,
+        (0, 0, 40, 24),
+        region,
+        "soft-wash",
+    )
+    whole_scene, _lead = whiteboard._block_fill_alpha(
+        1.0,
+        cache,
+        (0, 0, 40, 24),
+        region,
+        "soft-wash",
+        include_background=True,
+    )
+
+    assert np.max(object_only) == 0.0
+    assert np.min(whole_scene) == 1.0
+    assert np.max(whole_scene) == 1.0
+
+
 def test_block_fill_profile_rejects_mismatched_region_mask():
     source = Image.new("RGB", (16, 12), "white")
     cache = whiteboard._prepare_crayon_fill_cache(source)

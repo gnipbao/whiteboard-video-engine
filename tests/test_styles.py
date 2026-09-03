@@ -30,6 +30,8 @@ def test_builtin_styles_are_thirty_unique_recipes_in_stable_order():
     assert len({style.name_zh for style in styles}) == 30
     assert len({style.name_en for style in styles}) == 30
     assert styles[0].id == DEFAULT_STYLE_ID
+    assert styles[0].render.color_fill_scope == "block"
+    assert resolve_builtin_style("anime-graphite").render.color_fill_scope == "scene"
 
 
 def test_every_builtin_resolves_by_id_order_localized_names_and_aliases():
@@ -102,6 +104,17 @@ def test_storyboard_prompt_is_idempotent_and_enforces_production_contract():
     assert prompt.splitlines()[-1].startswith("Production contract:")
 
 
+def test_anime_graphite_prompt_requires_one_coherent_background_plane():
+    prompt = build_storyboard_prompt(
+        "A complete girl walks through a snowy street",
+        resolve_builtin_style("anime-graphite"),
+    )
+
+    assert "Background layer contract:" in prompt
+    assert "one coherent low-contrast background plane" in prompt
+    assert "hard-edged rectangular islands" in prompt
+
+
 def test_inline_custom_style_has_stable_content_id():
     first = custom_style_from_text(
         "Loose graphite contours with one muted blue accent.",
@@ -137,7 +150,11 @@ def test_json_custom_style_extends_builtin_and_overrides_render_only(
                 "extends": "minimal-line-explainer",
                 "name_zh": "极简流程定制",
                 "name_en": "Custom minimal process",
-                "render": {"draw_blocks": 2, "block_overlap": 0.24},
+                "render": {
+                    "draw_blocks": 2,
+                    "block_overlap": 0.24,
+                    "color_fill_scope": "scene",
+                },
             },
             ensure_ascii=False,
         ),
@@ -152,6 +169,7 @@ def test_json_custom_style_extends_builtin_and_overrides_render_only(
     assert custom.render.line_thickness == base.render.line_thickness
     assert custom.render.draw_blocks == 2
     assert custom.render.block_overlap == pytest.approx(0.24)
+    assert custom.render.color_fill_scope == "scene"
 
 
 def test_json_custom_style_accepts_strict_json_types_and_array_metadata(

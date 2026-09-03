@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 DEFAULT_STYLE_ID = "warm-crayon-storybook"
 STYLE_PROMPT_MARKER = "[WHITEBOARD_VISUAL_STYLE]"
-STORYBOARD_PROMPT_SCHEMA = 1
+STORYBOARD_PROMPT_SCHEMA = 2
 MAX_CUSTOM_STYLE_BYTES = 65_536
 
 LEGACY_STYLE_SUFFIX = (
@@ -36,6 +36,14 @@ _PRODUCTION_CONTRACT = (
     "panel border, page frame, UI, or subtitle band."
 )
 
+_WHOLE_SCENE_BACKGROUND_CONTRACT = (
+    "Render buildings, walls, sky, ground, and ambient scenery as one coherent "
+    "low-contrast background plane spanning the composition. Keep foreground subjects "
+    "complete, darker, and silhouette-separated. Only genuinely independent foreground "
+    "story beats may become separate clusters. Never turn scenery into floating cards, "
+    "panels, vignettes, or hard-edged rectangular islands."
+)
+
 
 class RenderStyle(BaseModel):
     """Only style-controlled parameters that affect the maintained renderer."""
@@ -43,6 +51,7 @@ class RenderStyle(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     block_fill_style: Literal["crayon", "clean", "soft-wash", "dry-brush"] = "crayon"
+    color_fill_scope: Literal["block", "scene"] = "block"
     stroke_detail: Literal["balanced", "rich", "max"] = "rich"
     line_thickness: int = Field(default=0, ge=0, le=16)
     line_art_snap: bool = True
@@ -331,13 +340,14 @@ BUILTIN_STYLES: tuple[VisualStyle, ...] = (
         ("角色故事", "青春", "二次元人物", "动作"),
         ("anime-pencil", "graphite-anime", "动漫铅笔"),
         "native",
-        "Keep recurring character clothing, hair silhouette, and facial proportions exact across scenes.",
+        "Keep recurring character clothing, hair silhouette, and facial proportions exact across scenes. Stage every shot as one continuous cinematic frame with a pale simplified environment behind darker foreground subjects.",
         "Clean animation-key graphite sketch with varied gray pencil pressure, confident outer contours, delicate facial lines, sparse construction marks, and no inked comic finish.",
         "Cool-white animation paper with no desk, holes, frame, or registration marks.",
         "Graphite gray with low-saturation local color appearing only in the final colored layer.",
-        "dense manga screentone, black silhouettes, photoreal pencil portrait, messy background, glossy anime rendering",
+        "dense manga screentone, black silhouettes, photoreal pencil portrait, messy background, glossy anime rendering, floating scenery cards, hard-edged background rectangles, equal-contrast dense scenery",
         render=_render(
             block_fill_style="soft-wash",
+            color_fill_scope="scene",
             stroke_detail="max",
             line_thickness=0,
             line_art_snap_threshold=240,
@@ -1126,6 +1136,10 @@ def build_storyboard_prompt(
         f"Paper/background: {style.paper}",
         f"Palette and fill: {style.palette}",
     ]
+    if style.render.color_fill_scope == "scene":
+        sections.append(
+            f"Background layer contract: {_WHOLE_SCENE_BACKGROUND_CONTRACT}"
+        )
     if cleaned_theme:
         sections.append(f"Story theme and art direction: {cleaned_theme}")
     sections.extend(
@@ -1164,6 +1178,11 @@ def style_planning_payload(style: VisualStyle) -> dict[str, object]:
         "paper": style.paper,
         "palette": style.palette,
         "avoid": style.avoid,
+        "background_contract": (
+            _WHOLE_SCENE_BACKGROUND_CONTRACT
+            if style.render.color_fill_scope == "scene"
+            else ""
+        ),
         "production_contract": _PRODUCTION_CONTRACT,
     }
 
