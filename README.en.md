@@ -28,7 +28,7 @@ The engine focuses on the rendering layer: semantic line-art input, stroke traci
 - Doubao Voice 2 word timing can pace the drawing and produce an editable SRT.
 - CLI-first design for scripting, automation, and Codex integration.
 
-+## Beyond The Reference Bitmap Wipe
+## Beyond The Reference Bitmap Wipe
 
 The reference [story-to-handdrawn-video](https://github.com/gnipbao/story-to-handdrawn-video)
 provides a useful Remotion style catalog and layered demo. This engine keeps the
@@ -190,38 +190,28 @@ default built-in style; an explicit CLI selection takes precedence.
 The reference project's `whiteboard-explainer`, `rawkid-crayon`, and
 `ms-paint-bad-doodle` ids remain available as compatibility aliases.
 
-| # | Style id | Name | Compatibility |
-| ---: | --- | --- | --- |
-| 1 | `warm-crayon-storybook` | Warm crayon storybook (default) | `native` |
-| 2 | `colored-pencil-diary` | Colored-pencil diary comic | `native` |
-| 3 | `clean-whiteboard` | Clean whiteboard | `native` |
-| 4 | `minimal-line-explainer` | Minimal line explainer | `native` |
-| 5 | `marker-whiteboard` | Bold marker whiteboard | `native` |
-| 6 | `rough-diagram` | Rough hand-drawn diagram | `native` |
-| 7 | `pressure-ink-notes` | Pressure-sensitive ink notes | `native` |
-| 8 | `semantic-ink` | Semantic ink drawing | `native` |
-| 9 | `anime-graphite` | Anime graphite sketch | `native` |
-| 10 | `kid-crayon` | Childlike crayon drawing | `adaptive` |
-| 11 | `raw-kid-crayon` | Raw family crayon card | `adaptive` |
-| 12 | `bean-doodle-infographic` | Bean doodle infographic | `native` |
-| 13 | `organic-contour-doodle` | Organic contour doodle | `native` |
-| 14 | `naive-marker-notes` | Naive marker notes | `native` |
-| 15 | `notebook-pencil-doodle` | Notebook pencil doodle | `native` |
-| 16 | `ballpoint-scribble` | Ballpoint scribble sketch | `experimental` |
-| 17 | `inked-storybook` | Inked light-color storybook | `native` |
-| 18 | `emotional-watercolor-sketch` | Emotional watercolor sketch | `adaptive` |
-| 19 | `ink-wash-minimal` | Minimal ink wash | `adaptive` |
-| 20 | `retro-gouache-concept` | Mid-century gouache concept | `adaptive` |
-| 21 | `nordic-gouache-storybook` | Nordic gouache storybook | `adaptive` |
-| 22 | `sunlit-storybook` | Sunlit storybook vis-dev | `adaptive` |
-| 23 | `warm-flat-storybook` | Warm flat storybook | `experimental` |
-| 24 | `zine-riso-collage` | Zine riso collage | `experimental` |
-| 25 | `manga-screentone` | Manga screentone | `experimental` |
-| 26 | `linocut-editorial` | Rough linocut editorial | `experimental` |
-| 27 | `blueprint-pencil` | Light-paper blueprint pencil | `native` |
-| 28 | `editorial-portrait` | Editorial portrait linework | `adaptive` |
-| 29 | `ms-paint-doodle` | Mouse-drawn pixel doodle | `experimental` |
-| 30 | `real-crayon-paper` | Real crayon on paper | `adaptive` |
+### Standardized *Little Match Girl* preview
+
+To isolate the visual-language differences, every reference uses the same 16:9
+storyboard frame: a blue-hour snowy night in nineteenth-century Copenhagen,
+with the girl and matches at lower-left/center, the stove-and-grandmother vision
+at upper-right, and broad negative space between them. The five contact sheets
+cover all thirty styles in registry order.
+
+<p align="center">
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-01.png" alt="Styles 01–06 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-02.png" alt="Styles 07–12 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-03.png" alt="Styles 13–18 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-04.png" alt="Styles 19–24 contact sheet" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-05.png" alt="Styles 25–30 contact sheet" width="19%"></a>
+</p>
+
+[Open the complete visual-style gallery](docs/STYLE_GALLERY.md) for the canonical
+scene specification, all thirty styles, use cases, visual characteristics,
+recommendations, direct paths to every reference image, and the reproducible
+contact-sheet command. Codex's built-in image-generation tool produced each
+source image from its registered style recipe; labels are added only to the
+local contact sheets, so the source artwork remains clean for line extraction.
 
 List full metadata or filter by compatibility:
 

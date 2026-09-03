@@ -22,7 +22,7 @@
 - 支持豆包语音 2 词级时间戳驱动手绘节奏，并输出独立 SRT。
 - CLI 优先，方便脚本化、自动化和 Codex 集成。
 
-+## 与参考项目的实现差异
+## 与参考项目的实现差异
 
 参考项目 [story-to-handdrawn-video](https://github.com/gnipbao/story-to-handdrawn-video)
 提供了很好的 Remotion 风格目录与分层演示。本引擎保留其适合白板的视觉语言，
@@ -180,38 +180,24 @@ whiteboard render-photo examples/cases/sports-illustration-anime2sketch/input.jp
 参考项目中的 `whiteboard-explainer`、`rawkid-crayon` 和
 `ms-paint-bad-doodle` 仍可作为兼容别名直接使用。
 
-| # | Style id | 中文名 | 适配等级 |
-| ---: | --- | --- | --- |
-| 1 | `warm-crayon-storybook` | 暖色蜡笔故事书（默认） | `native` |
-| 2 | `colored-pencil-diary` | 彩铅日记漫画 | `native` |
-| 3 | `clean-whiteboard` | 经典清爽白板 | `native` |
-| 4 | `minimal-line-explainer` | 极简黑白线条讲解 | `native` |
-| 5 | `marker-whiteboard` | 粗马克笔白板 | `native` |
-| 6 | `rough-diagram` | 手绘草图图解 | `native` |
-| 7 | `pressure-ink-notes` | 压感墨线笔记 | `native` |
-| 8 | `semantic-ink` | 语义钢笔线稿 | `native` |
-| 9 | `anime-graphite` | 动漫石墨线稿 | `native` |
-| 10 | `kid-crayon` | 儿童蜡笔坏画 | `adaptive` |
-| 11 | `raw-kid-crayon` | 潦草家庭蜡笔 | `adaptive` |
-| 12 | `bean-doodle-infographic` | 小豆人涂鸦信息图 | `native` |
-| 13 | `organic-contour-doodle` | 有机轮廓涂鸦 | `native` |
-| 14 | `naive-marker-notes` | 稚拙马克笔笔记 | `native` |
-| 15 | `notebook-pencil-doodle` | 铅笔课堂随记 | `native` |
-| 16 | `ballpoint-scribble` | 圆珠笔缠绕线速写 | `experimental` |
-| 17 | `inked-storybook` | 墨线淡彩绘本 | `native` |
-| 18 | `emotional-watercolor-sketch` | 情绪淡彩速写 | `adaptive` |
-| 19 | `ink-wash-minimal` | 水墨留白 | `adaptive` |
-| 20 | `retro-gouache-concept` | 中古动画水粉概念稿 | `adaptive` |
-| 21 | `nordic-gouache-storybook` | 北欧低饱和水粉绘本 | `adaptive` |
-| 22 | `sunlit-storybook` | 暖光童画绘本 | `adaptive` |
-| 23 | `warm-flat-storybook` | 暖色几何扁平绘本 | `experimental` |
-| 24 | `zine-riso-collage` | Zine 孔版拼贴 | `experimental` |
-| 25 | `manga-screentone` | 黑白漫画网点 | `experimental` |
-| 26 | `linocut-editorial` | 粗粝木刻社论 | `experimental` |
-| 27 | `blueprint-pencil` | 浅底蓝图铅笔 | `native` |
-| 28 | `editorial-portrait` | 编辑肖像线描 | `adaptive` |
-| 29 | `ms-paint-doodle` | 鼠标锯齿涂鸦 | `experimental` |
-| 30 | `real-crayon-paper` | 真实蜡笔纸感 | `adaptive` |
+### 《卖火柴的小女孩》统一风格预览
+
+为让差异只来自视觉语言，画廊使用同一幅 16:9 标准分镜：19 世纪哥本哈根的
+蓝调雪夜，小女孩和火柴位于左下至中部，炉火与祖母幻景位于右上，中间保留
+大面积留白。五张联系表按注册顺序覆盖全部 30 种风格。
+
+<p align="center">
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-01.png" alt="风格 01–06 联系表" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-02.png" alt="风格 07–12 联系表" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-03.png" alt="风格 13–18 联系表" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-04.png" alt="风格 19–24 联系表" width="19%"></a>
+  <a href="docs/STYLE_GALLERY.md"><img src="docs/assets/style-gallery/little-match-girl/contact-sheet-05.png" alt="风格 25–30 联系表" width="19%"></a>
+</p>
+
+[查看完整视觉风格画廊](docs/STYLE_GALLERY.md)，其中包含统一分镜规范、30 风格
+索引、适用类型、视觉特征、推荐场景、每张参考图的路径，以及联系表复现命令。
+参考原图由 Codex 内置图片生成工具按注册表中的风格配方分别生成；样式标签只在
+本地联系表中添加，不会污染后续抽线使用的原图。
 
 查看完整元数据，或只看某一适配等级：
 
