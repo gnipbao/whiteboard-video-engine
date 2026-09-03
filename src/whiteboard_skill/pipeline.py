@@ -61,6 +61,13 @@ def run_pipeline(
 ) -> Project:
     """Run script -> color storyboards -> local line art -> optional TTS -> MP4."""
 
+    script_path = Path(script_path)
+    out_path = Path(out_path)
+    if out_path.suffix.lower() == ".srt":
+        raise ValueError(
+            "out_path must be a video path, not .srt; the pipeline reserves that "
+            "suffix for the subtitle sidecar"
+        )
     if scene_asset_mode not in {"auto", "color-to-lineart", "direct-lineart"}:
         raise ValueError("scene_asset_mode must be auto, color-to-lineart, or direct-lineart")
     if animation_preset not in {"classic", "block-speedpaint"}:
@@ -75,9 +82,11 @@ def run_pipeline(
         raise ValueError("block_order must be reading or source")
     if not subtitle_font.strip():
         raise ValueError("subtitle_font cannot be empty")
+    if any(character in subtitle_font for character in ("\r", "\n", ",", "\0")):
+        raise ValueError("subtitle_font cannot contain commas or control characters")
     if not 6.0 <= subtitle_font_size <= 72.0:
         raise ValueError("subtitle_font_size must be between 6 and 72")
-    if not 0 <= subtitle_margin_v <= 1000:
+    if isinstance(subtitle_margin_v, bool) or not 0 <= subtitle_margin_v <= 1000:
         raise ValueError("subtitle_margin_v must be between 0 and 1000")
     if not 0.0 <= subtitle_outline <= 10.0:
         raise ValueError("subtitle_outline must be between 0 and 10")

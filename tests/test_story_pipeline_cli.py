@@ -115,6 +115,11 @@ def test_burn_subtitles_conflicts_with_legacy_caption_flags(legacy_flag: str):
         )
 
 
+def test_pipeline_rejects_srt_output_before_provider_or_file_access(tmp_path: Path):
+    with pytest.raises(ValueError, match="reserves that suffix"):
+        run_pipeline(tmp_path / "missing-story.md", tmp_path / "story.SRT")
+
+
 class _PlanTTS:
     default_voice = "plan-voice"
     file_extension = ".mp3"

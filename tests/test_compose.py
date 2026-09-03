@@ -1,4 +1,5 @@
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def test_burn_subtitles_builds_deterministic_libass_command(
     assert command[command.index("-fps_mode") + 1] == "passthrough"
     assert command[command.index("-c:a") + 1] == "copy"
     assert command[command.index("-movflags") + 1] == "+faststart"
-    assert Path(command[-1]).parent == out_path.parent
+    assert Path(command[-1]).parent.parent == out_path.parent
     assert Path(command[-1]) != out_path
     assert kwargs == {"check": True, "capture_output": True, "text": True}
 
@@ -148,6 +149,7 @@ def test_burn_subtitles_reports_ffmpeg_failure_without_touching_inputs(
     out_path = tmp_path / "output.mp4"
     video_path.write_bytes(b"original-video")
     subtitle_path.write_text("subtitle", encoding="utf-8")
+    out_path.write_bytes(b"previous-output")
 
     def fail_run(command: list[str], **_kwargs):
         raise subprocess.CalledProcessError(
@@ -164,7 +166,75 @@ def test_burn_subtitles_reports_ffmpeg_failure_without_touching_inputs(
 
     assert video_path.read_bytes() == b"original-video"
     assert subtitle_path.read_text(encoding="utf-8") == "subtitle"
-    assert not out_path.exists()
+    assert out_path.read_bytes() == b"previous-output"
+    assert not list(tmp_path.glob(".output.subtitles-*"))
+
+
+def test_burn_subtitles_rejects_empty_success_without_replacing_output(
+    monkeypatch,
+    tmp_path: Path,
+):
+    video_path = tmp_path / "input.mp4"
+    subtitle_path = tmp_path / "captions.srt"
+    out_path = tmp_path / "output.mp4"
+    video_path.write_bytes(b"original-video")
+    subtitle_path.write_text("subtitle", encoding="utf-8")
+    out_path.write_bytes(b"previous-output")
+
+    def empty_success(command: list[str], **_kwargs):
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(compose, "ffmpeg_path", lambda: "/test/ffmpeg")
+    monkeypatch.setattr(compose.subprocess, "run", empty_success)
+
+    with pytest.raises(RuntimeError, match="non-empty subtitled video"):
+        burn_subtitles(video_path, subtitle_path, out_path)
+
+    assert video_path.read_bytes() == b"original-video"
+    assert out_path.read_bytes() == b"previous-output"
+    assert not list(tmp_path.glob(".output.subtitles-*"))
+
+
+def test_burn_subtitles_cleans_temporary_directory_when_ffmpeg_is_missing(
+    monkeypatch,
+    tmp_path: Path,
+):
+    video_path = tmp_path / "input.mp4"
+    subtitle_path = tmp_path / "captions.srt"
+    video_path.write_bytes(b"original-video")
+    subtitle_path.write_text("subtitle", encoding="utf-8")
+
+    def missing_ffmpeg():
+        raise RuntimeError("ffmpeg not found on PATH")
+
+    monkeypatch.setattr(compose, "ffmpeg_path", missing_ffmpeg)
+
+    with pytest.raises(RuntimeError, match="ffmpeg not found"):
+        burn_subtitles(video_path, subtitle_path, tmp_path / "output.mp4")
+
+    assert not list(tmp_path.glob(".output.subtitles-*"))
+
+
+def test_burn_subtitles_preserves_input_permissions(monkeypatch, tmp_path: Path):
+    video_path = tmp_path / "input.mp4"
+    subtitle_path = tmp_path / "captions.srt"
+    out_path = tmp_path / "output.mp4"
+    video_path.write_bytes(b"original-video")
+    video_path.chmod(0o640)
+    subtitle_path.write_text("subtitle", encoding="utf-8")
+
+    def fake_run(command: list[str], **_kwargs):
+        temporary = Path(command[-1])
+        temporary.write_bytes(b"video-with-subtitles")
+        temporary.chmod(0o600)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(compose, "ffmpeg_path", lambda: "/test/ffmpeg")
+    monkeypatch.setattr(compose.subprocess, "run", fake_run)
+
+    burn_subtitles(video_path, subtitle_path, out_path)
+
+    assert stat.S_IMODE(out_path.stat().st_mode) == 0o640
 
 
 @pytest.mark.skipif(

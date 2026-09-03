@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -100,42 +101,39 @@ def burn_subtitles(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     suffix = out_path.suffix or video_path.suffix or ".mp4"
-    with tempfile.NamedTemporaryFile(
+    source_mode = stat.S_IMODE(video_path.stat().st_mode)
+    with tempfile.TemporaryDirectory(
         prefix=f".{out_path.stem}.subtitles-",
-        suffix=suffix,
         dir=out_path.parent,
-        delete=False,
-    ) as temporary:
-        temporary_path = Path(temporary.name)
-
-    command = [
-        ffmpeg_path(),
-        "-y",
-        "-i",
-        str(video_path),
-        "-vf",
-        subtitle_filter,
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "18",
-        "-pix_fmt",
-        "yuv420p",
-        "-fps_mode",
-        "passthrough",
-        "-c:a",
-        "copy",
-        "-movflags",
-        "+faststart",
-        str(temporary_path),
-    ]
-    try:
+    ) as temporary_dir:
+        temporary_path = Path(temporary_dir) / f"output{suffix}"
+        command = [
+            ffmpeg_path(),
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            subtitle_filter,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-fps_mode",
+            "passthrough",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(temporary_path),
+        ]
         try:
             subprocess.run(
                 command,
@@ -152,9 +150,12 @@ def burn_subtitles(
                 f"FFmpeg failed to burn subtitles from {subtitle_path} into "
                 f"{video_path}: {reason}"
             ) from exc
+        if not temporary_path.is_file() or temporary_path.stat().st_size == 0:
+            raise RuntimeError(
+                "FFmpeg completed without producing a non-empty subtitled video"
+            )
+        temporary_path.chmod(source_mode)
         temporary_path.replace(out_path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
     return out_path
 
 
