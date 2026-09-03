@@ -3,7 +3,18 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from whiteboard_skill.preprocess import Stroke, binarize, merge_nearby_strokes, order_strokes, smooth_strokes, svg_to_strokes, to_strokes, trace_8connected, zhang_suen_skeleton
+from whiteboard_skill.preprocess import (
+    Stroke,
+    binarize,
+    group_strokes_into_blocks,
+    merge_nearby_strokes,
+    order_strokes,
+    smooth_strokes,
+    svg_to_strokes,
+    to_strokes,
+    trace_8connected,
+    zhang_suen_skeleton,
+)
 
 
 def test_binarize_marks_dark_pixels():
@@ -124,3 +135,141 @@ def test_order_strokes_prefers_top_to_bottom_left_to_right():
     assert ordered[0] is upper_left
     assert ordered[1] is upper_right
     assert ordered[2] is lower
+
+
+def test_group_strokes_into_blocks_keeps_distant_objects_separate():
+    strokes = [
+        Stroke(points=[(20, 30), (70, 30)]),
+        Stroke(points=[(35, 20), (35, 70)]),
+        Stroke(points=[(300, 40), (360, 40)]),
+        Stroke(points=[(330, 20), (330, 80)]),
+    ]
+
+    blocks = group_strokes_into_blocks(strokes, (400, 200), max_blocks=6)
+
+    assert len(blocks) == 2
+    assert max(block.reveal_bounds[2] - block.reveal_bounds[0] for block in blocks) < 180
+    assert blocks[0].center[0] < blocks[1].center[0]
+
+
+def test_long_connector_does_not_collapse_distant_objects():
+    strokes = [
+        Stroke(points=[(20, 30), (70, 30), (70, 80)]),
+        Stroke(points=[(300, 30), (360, 30), (360, 80)]),
+        Stroke(points=[(5, 190), (395, 5)]),
+    ]
+
+    blocks = group_strokes_into_blocks(strokes, (400, 200), max_blocks=6)
+
+    assert len(blocks) == 2
+    assert max(block.reveal_bounds[2] - block.reveal_bounds[0] for block in blocks) < 180
+
+
+def test_target_block_count_never_splits_connected_illustration():
+    strokes = [
+        Stroke(points=[(20, 40), (100, 40)]),
+        Stroke(points=[(90, 35), (180, 45)]),
+        Stroke(points=[(170, 40), (260, 40)]),
+        Stroke(points=[(250, 35), (340, 45)]),
+    ]
+
+    blocks = group_strokes_into_blocks(
+        strokes,
+        (360, 180),
+        max_blocks=6,
+        target_blocks=4,
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].source_indices == [0, 1, 2, 3]
+
+
+def test_target_blocks_keeps_only_naturally_separated_left_right_objects():
+    strokes = [
+        Stroke(points=[(20, 20), (80, 20), (80, 100), (20, 100), (20, 20)]),
+        Stroke(points=[(35, 45), (50, 45)]),
+        Stroke(points=[(280, 25), (350, 25), (350, 105), (280, 105), (280, 25)]),
+        Stroke(points=[(300, 50), (320, 50)]),
+    ]
+
+    blocks = group_strokes_into_blocks(
+        strokes,
+        (400, 160),
+        max_blocks=6,
+        target_blocks=4,
+    )
+
+    assert len(blocks) == 2
+    assert blocks[0].source_indices == [0, 1]
+    assert blocks[1].source_indices == [2, 3]
+    assert blocks[0].center[0] < blocks[1].center[0]
+
+
+def test_structural_bridge_keeps_one_object_indivisible():
+    strokes = [
+        Stroke(points=[(20, 40), (70, 40), (70, 100)]),
+        Stroke(points=[(310, 40), (360, 40), (360, 100)]),
+        Stroke(points=[(70, 60), (310, 60)]),
+    ]
+
+    blocks = group_strokes_into_blocks(
+        strokes,
+        (400, 160),
+        max_blocks=6,
+        target_blocks=4,
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0].source_indices == [0, 1, 2]
+
+
+def test_target_blocks_can_merge_natural_objects_but_not_create_new_ones():
+    strokes = [
+        Stroke(points=[(20, 30), (60, 30), (60, 70)]),
+        Stroke(points=[(180, 30), (220, 30), (220, 70)]),
+        Stroke(points=[(340, 30), (380, 30), (380, 70)]),
+    ]
+
+    blocks = group_strokes_into_blocks(
+        strokes,
+        (400, 120),
+        max_blocks=6,
+        target_blocks=2,
+    )
+
+    assert len(blocks) == 2
+    assert sorted(len(block.source_indices) for block in blocks) == [1, 2]
+
+
+def test_landscape_reading_keeps_separate_columns_left_to_right():
+    left_lower = Stroke(points=[(20, 120), (80, 120), (80, 180)])
+    right_higher = Stroke(points=[(300, 20), (370, 20), (370, 90)])
+
+    blocks = group_strokes_into_blocks(
+        [right_higher, left_lower],
+        (400, 220),
+        max_blocks=6,
+        target_blocks=4,
+    )
+
+    assert len(blocks) == 2
+    assert blocks[0].source_indices == [1]
+    assert blocks[1].source_indices == [0]
+    assert blocks[0].center[0] < blocks[1].center[0]
+
+
+def test_landscape_reading_uses_vertical_order_for_same_column():
+    lower_left_edge = Stroke(points=[(80, 180), (180, 180), (180, 230)])
+    upper_right_edge = Stroke(points=[(100, 20), (200, 20), (200, 70)])
+
+    blocks = group_strokes_into_blocks(
+        [lower_left_edge, upper_right_edge],
+        (400, 280),
+        max_blocks=6,
+        target_blocks=4,
+    )
+
+    assert len(blocks) == 2
+    assert blocks[0].source_indices == [1]
+    assert blocks[1].source_indices == [0]
+    assert blocks[0].center[1] < blocks[1].center[1]

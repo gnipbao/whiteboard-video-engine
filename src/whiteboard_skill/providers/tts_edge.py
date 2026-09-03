@@ -11,6 +11,9 @@ from ..compose import ffprobe_duration
 class EdgeTTSProvider:
     """Synthesize narration through edge-tts."""
 
+    default_voice = "zh-CN-XiaoxiaoNeural"
+    file_extension = ".mp3"
+
     def synthesize(self, text: str, out_path: Path, voice: str) -> float:
         """Write audio and return measured duration."""
 

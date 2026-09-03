@@ -19,7 +19,7 @@ from PIL import Image
 
 
 class LineArtProvider(ABC):
-    """Extract a black-on-white line-art bitmap from a color image."""
+    """Extract a dark-on-white line-art bitmap from a color image."""
 
     @abstractmethod
     def extract(self, color_png: Path, out_png: Path) -> Path:
@@ -180,11 +180,15 @@ def _find_local_wrapper(wrapper_name: str) -> Path | None:
 
 
 def _lineart_python(wrapper: Path) -> Path:
+    configured = os.getenv("WHITEBOARD_LINEART_PYTHON")
+    if configured:
+        return Path(configured).expanduser()
     for root in [wrapper.parents[2], *wrapper.parents]:
-        candidate = root / ".venv-lineart" / "bin" / "python"
-        if candidate.exists():
-            return candidate
-    return Path(os.getenv("WHITEBOARD_LINEART_PYTHON", "python3"))
+        for environment in (".venv-lineart", ".venv-py312", ".venv"):
+            candidate = root / environment / "bin" / "python"
+            if candidate.exists():
+                return candidate
+    return Path("python3")
 
 
 def _informative_weights_ready(wrapper: Path) -> bool:
@@ -206,8 +210,10 @@ def _postprocess_extracted_lineart(image_path: Path, provider_name: str) -> None
 
     Anime2Sketch often emits many very light gray pencil fragments. Those are
     useful for still sketches, but they become noisy short strokes after
-    skeleton tracing. The default cleanup keeps darker semantic contours,
-    removes tiny isolated components, and writes pure black-on-white output.
+    skeleton tracing. The binary cleanup mask keeps darker semantic contours
+    and removes tiny isolated components. Anime2Sketch output retains the
+    surviving source-gray values as a second, tonal channel; downstream stroke
+    extraction still thresholds that file into a stable binary guide.
     """
 
     params = _lineart_cleanup_params(provider_name)
@@ -221,14 +227,19 @@ def _postprocess_extracted_lineart(image_path: Path, provider_name: str) -> None
     mask = _suppress_canvas_border_mask(mask)
     mask = _remove_small_ink_components(
         mask,
-        min_area=max(10, int(round(min(mask.shape) * float(params["min_area_ratio"])))),
-        min_span=max(8, int(round(min(mask.shape) * float(params["min_span_ratio"])))),
+        min_area=max(10, round(min(mask.shape) * float(params["min_area_ratio"]))),
+        min_span=max(8, round(min(mask.shape) * float(params["min_span_ratio"]))),
     )
     dilation = int(params["dilation"])
     if dilation > 0:
         mask = _binary_dilate(mask, iterations=dilation)
         mask = _suppress_canvas_border_mask(mask)
-    final = np.where(mask, 0, 255).astype(np.uint8)
+    preserve_tone = "anime2sketch" in provider_name.lower()
+    if preserve_tone:
+        tones = _dilate_grayscale_ink(gray, iterations=dilation)
+        final = np.where(mask, tones, 255).astype(np.uint8)
+    else:
+        final = np.where(mask, 0, 255).astype(np.uint8)
     Image.fromarray(final, mode="L").convert("RGB").save(image_path)
 
 
@@ -285,6 +296,22 @@ def _binary_dilate(mask: np.ndarray, iterations: int = 1) -> np.ndarray:
     return result
 
 
+def _dilate_grayscale_ink(gray: np.ndarray, iterations: int = 1) -> np.ndarray:
+    """Extend pencil tones with a local minimum when binary ink is dilated."""
+
+    result = gray.astype(np.uint8, copy=True)
+    height, width = result.shape
+    for _ in range(max(0, iterations)):
+        padded = np.pad(result, 1, mode="constant", constant_values=255)
+        neighborhoods = [
+            padded[y_offset : y_offset + height, x_offset : x_offset + width]
+            for y_offset in range(3)
+            for x_offset in range(3)
+        ]
+        result = np.minimum.reduce(neighborhoods)
+    return result
+
+
 def _remove_small_ink_components(mask: np.ndarray, min_area: int, min_span: int) -> np.ndarray:
     if not np.any(mask):
         return mask
@@ -292,7 +319,7 @@ def _remove_small_ink_components(mask: np.ndarray, min_area: int, min_span: int)
     visited = np.zeros_like(mask, dtype=bool)
     keep = np.zeros_like(mask, dtype=bool)
     ys, xs = np.nonzero(mask)
-    for start_y, start_x in zip(ys.tolist(), xs.tolist()):
+    for start_y, start_x in zip(ys.tolist(), xs.tolist(), strict=True):
         if visited[start_y, start_x]:
             continue
         stack = [(start_x, start_y)]

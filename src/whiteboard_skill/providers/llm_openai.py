@@ -36,5 +36,5 @@ class OpenAILLMProvider:
         data = json.loads(content)
         scenes = data.get("scenes", data)
         if not isinstance(scenes, list):
-            raise RuntimeError("LLM response did not contain a scenes list")
+            raise TypeError("LLM response did not contain a scenes list")
         return scenes

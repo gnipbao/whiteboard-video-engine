@@ -6,11 +6,11 @@ import math
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from functools import cmp_to_key
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
-
 
 Point = tuple[float, float]
 NEIGHBORS_8 = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
@@ -59,6 +59,28 @@ class Stroke:
     points: list[Point]
     color: tuple[int, int, int] = (64, 60, 62)
     source: str = "raster"
+    reveal_width: int | None = None
+
+
+@dataclass
+class StrokeBlock:
+    """A spatially coherent group of strokes rendered as one story beat."""
+
+    id: int
+    strokes: list[Stroke]
+    bounds: tuple[int, int, int, int]
+    ink_length: float
+    source_indices: list[int]
+    fill_bounds: tuple[int, int, int, int] | None = None
+
+    @property
+    def center(self) -> Point:
+        x0, y0, x1, y1 = self.reveal_bounds
+        return ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+
+    @property
+    def reveal_bounds(self) -> tuple[int, int, int, int]:
+        return self.fill_bounds or self.bounds
 
 
 def load_on_canvas(image_path: Path, canvas_size: tuple[int, int]) -> Image.Image:
@@ -552,6 +574,358 @@ def _canvas_from_strokes(strokes: list[Stroke]) -> tuple[int, int]:
     max_x = max(_stroke_bounds(stroke.points)[2] for stroke in strokes)
     max_y = max(_stroke_bounds(stroke.points)[3] for stroke in strokes)
     return (max(1, int(math.ceil(max_x + 1))), max(1, int(math.ceil(max_y + 1))))
+
+
+def _bounds_gap(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+) -> tuple[float, float, float]:
+    """Return horizontal, vertical and Euclidean distance between two boxes."""
+
+    lx0, ly0, lx1, ly1 = left
+    rx0, ry0, rx1, ry1 = right
+    gap_x = max(0.0, max(lx0, rx0) - min(lx1, rx1))
+    gap_y = max(0.0, max(ly0, ry0) - min(ly1, ry1))
+    return gap_x, gap_y, math.hypot(gap_x, gap_y)
+
+
+def _union_bounds(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    return (
+        min(left[0], right[0]),
+        min(left[1], right[1]),
+        max(left[2], right[2]),
+        max(left[3], right[3]),
+    )
+
+
+def _point_to_bounds_distance(
+    point: Point,
+    bounds: tuple[float, float, float, float],
+) -> float:
+    """Return the shortest distance from a point to an axis-aligned box."""
+
+    x, y = point
+    x0, y0, x1, y1 = bounds
+    gap_x = max(x0 - x, 0.0, x - x1)
+    gap_y = max(y0 - y, 0.0, y - y1)
+    return math.hypot(gap_x, gap_y)
+
+
+def group_strokes_into_blocks(
+    strokes: list[Stroke],
+    canvas_size: tuple[int, int],
+    max_blocks: int = 6,
+    target_blocks: int | None = None,
+    proximity_ratio: float = 0.032,
+    min_ink_ratio: float = 0.012,
+    padding_ratio: float = 0.022,
+    order: str = "reading",
+) -> list[StrokeBlock]:
+    """Group nearby strokes into stable object-like drawing blocks.
+
+    Connected and near-neighbour strokes are treated as indivisible objects.
+    Distinct blocks therefore come from real whitespace between those objects,
+    not from slicing a large component to satisfy ``target_blocks``. The target
+    is an upper-bound preference; it may merge natural blocks but never invents
+    a cut through a person, building, or other connected illustration.
+    """
+
+    width, height = canvas_size
+    drawable: list[tuple[int, Stroke]] = [
+        (index, stroke)
+        for index, stroke in enumerate(strokes)
+        if len(stroke.points) >= 2 and _stroke_length(stroke.points) > 1.0
+    ]
+    if not drawable:
+        return []
+
+    maximum = max(1, int(max_blocks))
+    requested = max(1, int(target_blocks)) if target_blocks else None
+    limit = min(maximum, requested) if requested is not None else maximum
+    proximity = max(6.0, min(width, height) * max(0.005, proximity_ratio))
+    bounds = [_stroke_bounds(stroke.points) for _index, stroke in drawable]
+    lengths = [_stroke_length(stroke.points) for _index, stroke in drawable]
+    frame_diagonal = math.hypot(width, height)
+    connectors = []
+    for stroke_bounds, length in zip(bounds, lengths):
+        x0, y0, x1, y1 = stroke_bounds
+        diagonal = math.hypot(x1 - x0, y1 - y0)
+        connectors.append(diagonal > frame_diagonal * 0.42 and length <= diagonal * 1.65)
+
+    parents = list(range(len(drawable)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    # A slightly wider axis-aligned allowance joins facial details and broken
+    # outlines, while the diagonal distance prevents unrelated corner regions
+    # from collapsing into one block.
+    for left in range(len(drawable)):
+        left_bounds = bounds[left]
+        for right in range(left + 1, len(drawable)):
+            if connectors[left] or connectors[right]:
+                continue
+            gap_x, gap_y, gap = _bounds_gap(left_bounds, bounds[right])
+            if gap <= proximity or (
+                gap_x <= proximity * 0.72 and gap_y <= proximity * 1.35
+            ) or (
+                gap_y <= proximity * 0.72 and gap_x <= proximity * 1.35
+            ):
+                union(left, right)
+
+    # A long, almost-straight stroke is normally a ground line, arrow, or scene
+    # separator, so it is excluded from the broad bounding-box pass above. When
+    # both of its endpoints actually land on nearby regular strokes, however,
+    # it is a structural bridge and must keep the joined object indivisible.
+    # Looking only at endpoints avoids a ground line that merely passes beneath
+    # two people from collapsing them into one block.
+    regular_indices = [index for index, connector in enumerate(connectors) if not connector]
+    bridge_distance = max(8.0, proximity * 1.45)
+    for connector_index, is_connector in enumerate(connectors):
+        if not is_connector or not regular_indices:
+            continue
+        touched: list[int] = []
+        connector_points = drawable[connector_index][1].points
+        for endpoint in (connector_points[0], connector_points[-1]):
+            nearest = min(
+                regular_indices,
+                key=lambda index: _point_to_bounds_distance(endpoint, bounds[index]),
+            )
+            if _point_to_bounds_distance(endpoint, bounds[nearest]) <= bridge_distance:
+                touched.append(nearest)
+        for touched_index in touched:
+            union(connector_index, touched_index)
+
+    components: dict[int, list[int]] = {}
+    for index in range(len(drawable)):
+        components.setdefault(find(index), []).append(index)
+
+    clusters: list[dict[str, object]] = []
+    for members in components.values():
+        cluster_bounds = bounds[members[0]]
+        for member in members[1:]:
+            cluster_bounds = _union_bounds(cluster_bounds, bounds[member])
+        clusters.append(
+            {
+                "members": members,
+                "bounds": cluster_bounds,
+                "ink": sum(lengths[member] for member in members),
+            }
+        )
+
+    def cluster_distance(left: dict[str, object], right: dict[str, object]) -> float:
+        left_bounds = left["bounds"]
+        right_bounds = right["bounds"]
+        assert isinstance(left_bounds, tuple) and isinstance(right_bounds, tuple)
+        gap_x, gap_y, gap = _bounds_gap(left_bounds, right_bounds)
+        lcx = (left_bounds[0] + left_bounds[2]) / 2.0
+        lcy = (left_bounds[1] + left_bounds[3]) / 2.0
+        rcx = (right_bounds[0] + right_bounds[2]) / 2.0
+        rcy = (right_bounds[1] + right_bounds[3]) / 2.0
+        center_gap = math.hypot(rcx - lcx, rcy - lcy)
+        # Prefer combining marks on the same visual row/column before jumping
+        # across the canvas.
+        axis_penalty = min(gap_x, gap_y) * 0.35
+        return gap + center_gap * 0.08 + axis_penalty
+
+    def merge_cluster(source_index: int, target_index: int) -> None:
+        source = clusters[source_index]
+        target = clusters[target_index]
+        source_members = source["members"]
+        target_members = target["members"]
+        assert isinstance(source_members, list) and isinstance(target_members, list)
+        target_members.extend(source_members)
+        source_bounds = source["bounds"]
+        target_bounds = target["bounds"]
+        assert isinstance(source_bounds, tuple) and isinstance(target_bounds, tuple)
+        target["bounds"] = _union_bounds(source_bounds, target_bounds)
+        target["ink"] = float(target["ink"]) + float(source["ink"])
+        del clusters[source_index]
+
+    # Very long, nearly straight paths (ground lines, arrows, separators) are
+    # attached after clustering. Otherwise their huge bounding boxes can bridge
+    # two unrelated people or props into one component.
+    while len(clusters) > 1:
+        connector_index = next(
+            (
+                index
+                for index, cluster in enumerate(clusters)
+                if all(connectors[member] for member in cluster["members"])
+            ),
+            None,
+        )
+        if connector_index is None:
+            break
+        regular_indices = [
+            index
+            for index, cluster in enumerate(clusters)
+            if index != connector_index and any(not connectors[member] for member in cluster["members"])
+        ]
+        if not regular_indices:
+            break
+        target_index = min(regular_indices, key=lambda index: cluster_distance(clusters[connector_index], clusters[index]))
+        merge_cluster(connector_index, target_index)
+
+    total_ink = sum(lengths)
+    minimum_ink = max(6.0, total_ink * max(0.0, min_ink_ratio))
+    while len(clusters) > 1:
+        tiny_indices = [index for index, cluster in enumerate(clusters) if float(cluster["ink"]) < minimum_ink]
+        if not tiny_indices:
+            break
+        source_index = min(tiny_indices, key=lambda index: float(clusters[index]["ink"]))
+        target_index = min(
+            (index for index in range(len(clusters)) if index != source_index),
+            key=lambda index: cluster_distance(clusters[source_index], clusters[index]),
+        )
+        merge_cluster(source_index, target_index)
+
+    # A face, window, badge, or similar inner detail belongs to its enclosing
+    # object regardless of whether the caller supplied a preferred block count.
+    while len(clusters) > 1:
+        containment: tuple[int, int] | None = None
+        for child_index, child in enumerate(clusters):
+            cx0, cy0, cx1, cy1 = child["bounds"]
+            child_area = max(1.0, (cx1 - cx0) * (cy1 - cy0))
+            for parent_index, parent in enumerate(clusters):
+                if child_index == parent_index:
+                    continue
+                if any(connectors[member] for member in parent["members"]):
+                    continue
+                px0, py0, px1, py1 = parent["bounds"]
+                parent_area = max(1.0, (px1 - px0) * (py1 - py0))
+                if parent_area <= child_area:
+                    continue
+                overlap = max(0.0, min(cx1, px1) - max(cx0, px0)) * max(
+                    0.0,
+                    min(cy1, py1) - max(cy0, py0),
+                )
+                if overlap / child_area >= 0.82 and (
+                    child_area / parent_area <= 0.42
+                    or float(child["ink"]) <= float(parent["ink"]) * 0.55
+                ):
+                    containment = (child_index, parent_index)
+                    break
+            if containment is not None:
+                break
+        if containment is None:
+            break
+        merge_cluster(containment[0], containment[1])
+
+    while len(clusters) > limit:
+        left_index, right_index = min(
+            (
+                (left, right)
+                for left in range(len(clusters))
+                for right in range(left + 1, len(clusters))
+            ),
+            key=lambda pair: cluster_distance(clusters[pair[0]], clusters[pair[1]]),
+        )
+        merge_cluster(right_index, left_index)
+
+    if order not in {"reading", "source"}:
+        raise ValueError(f"Unknown block order: {order}")
+
+    def source_key(cluster: dict[str, object]) -> tuple[float, ...]:
+        members = cluster["members"]
+        assert isinstance(members, list)
+        return (float(min(drawable[member][0] for member in members)),)
+
+    def semantic_bounds(cluster: dict[str, object]) -> tuple[float, float, float, float]:
+        members = cluster["members"]
+        assert isinstance(members, list)
+        semantic_members = [member for member in members if not connectors[member]] or members
+        result_bounds = bounds[semantic_members[0]]
+        for member in semantic_members[1:]:
+            result_bounds = _union_bounds(result_bounds, bounds[member])
+        return result_bounds
+
+    def compare_landscape_reading(
+        left: dict[str, object],
+        right: dict[str, object],
+    ) -> int:
+        left_bounds = semantic_bounds(left)
+        right_bounds = semantic_bounds(right)
+        lx0, ly0, lx1, ly1 = left_bounds
+        rx0, ry0, rx1, ry1 = right_bounds
+        overlap = max(0.0, min(lx1, rx1) - max(lx0, rx0))
+        minimum_width = max(1.0, min(lx1 - lx0, rx1 - rx0))
+
+        # Separate columns always read left-to-right, even if the right-hand
+        # object happens to have a higher roof, hat, or raised arm. Only objects
+        # occupying substantially the same horizontal column use vertical order.
+        if overlap / minimum_width >= 0.60:
+            left_y = (ly0 + ly1) / 2.0
+            right_y = (ry0 + ry1) / 2.0
+            if not math.isclose(left_y, right_y):
+                return -1 if left_y < right_y else 1
+
+        left_x = (lx0 + lx1) / 2.0
+        right_x = (rx0 + rx1) / 2.0
+        if not math.isclose(left_x, right_x):
+            return -1 if left_x < right_x else 1
+        if not math.isclose(ly0, ry0):
+            return -1 if ly0 < ry0 else 1
+        left_source = source_key(left)
+        right_source = source_key(right)
+        if left_source == right_source:
+            return 0
+        return -1 if left_source < right_source else 1
+
+    if order == "source":
+        clusters.sort(key=source_key)
+    elif width >= height:
+        clusters.sort(key=cmp_to_key(compare_landscape_reading))
+    else:
+        row_height = max(40.0, height * 0.18)
+
+        def portrait_reading_key(cluster: dict[str, object]) -> tuple[float, ...]:
+            x0, y0, _x1, y1 = semantic_bounds(cluster)
+            center_y = (y0 + y1) / 2.0
+            return (float(int(center_y // row_height)), x0, y0, *source_key(cluster))
+
+        clusters.sort(key=portrait_reading_key)
+    padding = max(3, int(round(min(width, height) * max(0.0, padding_ratio))))
+
+    def padded(bounds_value: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+        x0, y0, x1, y1 = bounds_value
+        return (
+            max(0, int(math.floor(x0)) - padding),
+            max(0, int(math.floor(y0)) - padding),
+            min(width, int(math.ceil(x1)) + padding + 1),
+            min(height, int(math.ceil(y1)) + padding + 1),
+        )
+
+    result: list[StrokeBlock] = []
+    for block_id, cluster in enumerate(clusters):
+        members = cluster["members"]
+        cluster_bounds = cluster["bounds"]
+        assert isinstance(members, list) and isinstance(cluster_bounds, tuple)
+        source_indices = sorted(drawable[member][0] for member in members)
+        block_strokes = order_strokes([drawable[member][1] for member in members], canvas_size)
+        padded_bounds = padded(cluster_bounds)
+        padded_fill_bounds = padded(semantic_bounds(cluster))
+        result.append(
+            StrokeBlock(
+                id=block_id,
+                strokes=block_strokes,
+                bounds=padded_bounds,
+                ink_length=float(cluster["ink"]),
+                source_indices=source_indices,
+                fill_bounds=padded_fill_bounds,
+            )
+        )
+    return result
 
 
 def order_strokes(strokes: list[Stroke], canvas_size: tuple[int, int] | None = None) -> list[Stroke]:

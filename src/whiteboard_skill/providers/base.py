@@ -18,7 +18,7 @@ class LLMProvider(Protocol):
 
 
 class ImageProvider(Protocol):
-    """Generate line-art images for a scene prompt."""
+    """Generate storyboard images for a scene prompt."""
 
     def generate(self, prompt: str, out_path: Path, size: tuple[int, int]) -> Path:
         """Write an image file and return its path."""
@@ -27,8 +27,11 @@ class ImageProvider(Protocol):
 class TTSProvider(Protocol):
     """Synthesize narration audio."""
 
+    default_voice: str
+    file_extension: str
+
     def synthesize(self, text: str, out_path: Path, voice: str) -> float:
-        """Write audio and return estimated or measured duration in seconds."""
+        """Write audio and return its duration in seconds."""
 
 
 @dataclass(frozen=True)
@@ -40,30 +43,119 @@ class ProviderBundle:
     tts: TTSProvider
 
 
+@dataclass(frozen=True)
+class SpeechWordTiming:
+    """One provider-reported spoken token interval in local scene seconds."""
+
+    text: str
+    start_sec: float
+    end_sec: float
+    confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class SpeechSentenceTiming:
+    """One provider-reported sentence interval and its optional word timings."""
+
+    text: str
+    start_sec: float
+    end_sec: float
+    words: tuple[SpeechWordTiming, ...] = ()
+
+
+@dataclass(frozen=True)
+class SpeechSynthesisResult:
+    """Detailed TTS result used when a provider exposes timing metadata."""
+
+    duration_sec: float
+    sentences: tuple[SpeechSentenceTiming, ...] = ()
+
+
 def _truthy(value: str | None) -> bool:
     return bool(value and value.lower() in {"1", "true", "yes", "on"})
 
 
-def get_providers(mock: bool | None = None) -> ProviderBundle:
+def _use_mock(mock: bool | None) -> bool:
+    selected = settings.mock if mock is None else mock
+    return selected or _truthy(os.getenv("MOCK"))
+
+
+def get_llm_provider(mock: bool | None = None) -> LLMProvider:
+    """Return only the requested scene-planning provider."""
+
+    if _use_mock(mock):
+        from .llm_mock import MockLLMProvider
+
+        return MockLLMProvider()
+
+    from .llm_openai import OpenAILLMProvider
+
+    return OpenAILLMProvider()
+
+
+def get_image_provider(
+    mock: bool | None = None,
+    *,
+    image_model: str | None = None,
+    image_quality: str | None = None,
+) -> ImageProvider:
+    """Return only the requested storyboard-image provider."""
+
+    if _use_mock(mock):
+        from .image_mock import MockImageProvider
+
+        return MockImageProvider()
+
+    from .image_openai import OpenAIImageProvider
+
+    return OpenAIImageProvider(model=image_model, quality=image_quality)
+
+
+def get_tts_provider(mock: bool | None = None, *, name: str | None = None) -> TTSProvider:
+    """Return only the requested narration provider.
+
+    Keeping this factory independent lets preplanned, pre-illustrated projects use
+    Doubao without constructing an unrelated OpenAI client.
+    """
+
+    if _use_mock(mock):
+        from .tts_mock import MockTTSProvider
+
+        return MockTTSProvider()
+
+    selected = (name or os.getenv("TTS_PROVIDER") or settings.tts_provider).strip().lower()
+    if selected == "edge":
+        from .tts_edge import EdgeTTSProvider
+
+        return EdgeTTSProvider()
+    if selected in {"doubao", "seed-tts-2.0", "volcengine"}:
+        from .tts_doubao import DoubaoTTSProvider
+
+        return DoubaoTTSProvider()
+    raise ValueError(f"Unknown TTS provider: {selected}")
+
+
+def get_providers(
+    mock: bool | None = None,
+    *,
+    tts_provider: str | None = None,
+    image_model: str | None = None,
+    image_quality: str | None = None,
+) -> ProviderBundle:
     """Return provider implementations.
 
     If `mock` is true, or `MOCK=1` is set, the returned providers run fully
-    offline and produce deterministic assets. Otherwise the OpenAI and Edge TTS
-    providers are selected lazily so missing optional dependencies fail only
-    when a real run is requested.
+    offline and produce deterministic assets. Otherwise OpenAI planning/image
+    providers and the selected narration provider are initialized lazily.
     """
 
-    use_mock = settings.mock if mock is None else mock
-    use_mock = use_mock or _truthy(os.getenv("MOCK"))
-    if use_mock:
-        from .image_mock import MockImageProvider
-        from .llm_mock import MockLLMProvider
-        from .tts_mock import MockTTSProvider
-
-        return ProviderBundle(llm=MockLLMProvider(), image=MockImageProvider(), tts=MockTTSProvider())
-
-    from .image_openai import OpenAIImageProvider
-    from .llm_openai import OpenAILLMProvider
-    from .tts_edge import EdgeTTSProvider
-
-    return ProviderBundle(llm=OpenAILLMProvider(), image=OpenAIImageProvider(), tts=EdgeTTSProvider())
+    use_mock = _use_mock(mock)
+    return ProviderBundle(
+        llm=get_llm_provider(use_mock),
+        image=get_image_provider(
+            use_mock,
+            image_model=image_model,
+            image_quality=image_quality,
+        ),
+        tts=get_tts_provider(use_mock, name=tts_provider),
+    )

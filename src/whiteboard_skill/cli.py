@@ -11,12 +11,23 @@ from pathlib import Path
 from .compose import compose_project, ffmpeg_path
 from .config import settings
 from .logging_setup import setup_logging
-from .preprocess import quality_check, svg_to_strokes, to_strokes
+from .models import TextRole
 from .pipeline import run_pipeline
-from .providers import get_providers
+from .preprocess import quality_check, svg_to_strokes, to_strokes
+from .providers import get_llm_provider
 from .providers.lineart import get_lineart_provider, vectorize_with_vtracer
 from .scene_split import split_script
 from .whiteboard import DEFAULT_LINE_ART_SNAP_THRESHOLD, available_hands, render_image
+
+
+def _parse_block_sequence(value: str) -> list[int]:
+    try:
+        sequence = [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("block sequence must be comma-separated integer ids") from exc
+    if not sequence:
+        raise argparse.ArgumentTypeError("block sequence cannot be empty")
+    return sequence
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,8 +49,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "plan-script":
             script = args.script.read_text(encoding="utf-8")
-            providers = get_providers(mock=not args.real)
-            scenes = split_script(script, providers.llm, args.scenes)
+            provider = get_llm_provider(mock=not args.real)
+            scenes = split_script(script, provider, args.scenes)
             payload = [_scene_payload(scene) for scene in scenes]
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -92,14 +103,32 @@ def main(argv: list[str] | None = None) -> int:
                 source_fit="exact" if used_source_size else args.source_fit,
                 color_fill_mode=args.color_fill,
                 color_fill_blocks=args.color_blocks,
+                line_reveal_mode=args.line_reveal,
+                base_line_opacity=args.base_line_opacity,
                 hand_style=args.hand,
                 hand_scale=args.hand_scale,
-                draw_text=args.draw_text,
+                draw_text=_resolve_draw_text(args),
+                draw_text_role=args.draw_text_role,
                 draw_text_position=args.draw_text_position,
+                draw_text_align=args.draw_text_align,
+                draw_text_width=args.draw_text_width,
+                draw_text_max_height=args.draw_text_max_height,
+                draw_text_line_spacing=args.draw_text_line_spacing,
+                draw_text_font_size=args.draw_text_font_size,
+                draw_text_font=args.draw_text_font,
+                draw_text_reveal=args.draw_text_reveal,
+                draw_text_order=args.draw_text_order,
                 line_art_snap=not args.no_lineart_snap,
                 line_art_snap_threshold=args.lineart_snap_threshold,
                 line_thickness=args.line_thickness,
                 stroke_detail=args.stroke_detail,
+                animation_preset=args.animation_preset,
+                story_text=args.story_text,
+                max_draw_blocks=args.max_draw_blocks,
+                draw_blocks=args.draw_blocks,
+                block_overlap=args.block_overlap,
+                block_order=args.block_order,
+                block_sequence=args.block_sequence,
             )
             print(args.output)
             return 0
@@ -124,14 +153,32 @@ def main(argv: list[str] | None = None) -> int:
                 source_fit=args.source_fit,
                 color_fill_mode=args.color_fill,
                 color_fill_blocks=args.color_blocks,
+                line_reveal_mode=args.line_reveal,
+                base_line_opacity=args.base_line_opacity,
                 hand_style=args.hand,
                 hand_scale=args.hand_scale,
-                draw_text=args.draw_text,
+                draw_text=_resolve_draw_text(args),
+                draw_text_role=args.draw_text_role,
                 draw_text_position=args.draw_text_position,
+                draw_text_align=args.draw_text_align,
+                draw_text_width=args.draw_text_width,
+                draw_text_max_height=args.draw_text_max_height,
+                draw_text_line_spacing=args.draw_text_line_spacing,
+                draw_text_font_size=args.draw_text_font_size,
+                draw_text_font=args.draw_text_font,
+                draw_text_reveal=args.draw_text_reveal,
+                draw_text_order=args.draw_text_order,
                 line_art_snap=not args.no_lineart_snap,
                 line_art_snap_threshold=args.lineart_snap_threshold,
                 line_thickness=args.line_thickness,
                 stroke_detail=args.stroke_detail,
+                animation_preset=args.animation_preset,
+                story_text=args.story_text,
+                max_draw_blocks=args.max_draw_blocks,
+                draw_blocks=args.draw_blocks,
+                block_overlap=args.block_overlap,
+                block_order=args.block_order,
+                block_sequence=args.block_sequence,
             )
             print(args.output)
             return 0
@@ -152,15 +199,86 @@ def main(argv: list[str] | None = None) -> int:
                 mock=args.mock,
                 hand_style=args.hand,
                 hand_scale=args.hand_scale,
+                tts_provider=args.tts_provider,
+                image_model=args.image_model,
+                image_quality=args.image_quality,
+                lineart_provider=args.lineart_provider,
+                scene_asset_mode=args.scene_assets,
+                storyboard_dir=args.storyboard_dir,
+                scene_plan_path=args.scene_plan,
+                animation_preset=args.animation_preset,
+                max_draw_blocks=args.max_draw_blocks,
+                draw_blocks=args.draw_blocks,
+                block_overlap=args.block_overlap,
+                block_order=args.block_order,
+                block_sequence=args.block_sequence,
+                captions=args.captions,
+                burn_subtitles=args.burn_subtitles,
+                subtitle_font=args.subtitle_font,
+                subtitle_font_size=args.subtitle_font_size,
+                subtitle_margin_v=args.subtitle_margin_v,
+                subtitle_outline=args.subtitle_outline,
             )
             print(args.output)
+            if project.subtitle_path is not None:
+                print(f"subtitles={project.subtitle_path}")
             print(f"scenes={len(project.scenes)} work_dir={settings.work_dir / _slug(args.script.stem)}")
             return 0
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI boundary prints a concise provider/render error
         print(f"whiteboard: {exc}", file=sys.stderr)
         return 1
     parser.print_help()
     return 2
+
+
+def _resolve_draw_text(args: argparse.Namespace) -> str | None:
+    if getattr(args, "draw_text_file", None) is not None:
+        return args.draw_text_file.read_text(encoding="utf-8")
+    text = getattr(args, "draw_text", None)
+    return text.replace("\\n", "\n") if text else None
+
+
+def _add_draw_text_arguments(parser: argparse.ArgumentParser) -> None:
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--draw-text", help="Text to reveal. Newlines are preserved; literal \\n is also accepted.")
+    source.add_argument("--draw-text-file", type=Path, help="UTF-8 text file used for longer multiline captions.")
+    parser.add_argument(
+        "--draw-text-role",
+        choices=[TextRole.ANNOTATION.value, TextRole.CAPTION.value],
+        default=TextRole.ANNOTATION.value,
+        help="Treat text as a short late annotation (default) or an explicit full caption.",
+    )
+    parser.add_argument("--draw-text-position", choices=["bottom", "top", "center"], default="bottom")
+    parser.add_argument("--draw-text-align", choices=["left", "center", "right"], default="center")
+    parser.add_argument("--draw-text-width", type=float, default=0.82, help="Maximum text width as a fraction of the canvas (0.1-1.0).")
+    parser.add_argument("--draw-text-max-height", type=float, default=0.36, help="Maximum text block height as a fraction of the canvas (0.1-1.0).")
+    parser.add_argument("--draw-text-line-spacing", type=float, default=0.25, help="Line spacing as a fraction of the selected font size.")
+    parser.add_argument("--draw-text-font-size", type=int, help="Optional fixed font size in pixels; otherwise text is fit automatically.")
+    parser.add_argument("--draw-text-font", type=Path, help="Optional TTF/TTC/OTF font path, useful for a handwritten Chinese font.")
+    parser.add_argument("--draw-text-reveal", choices=["stroke", "line-wipe"], default="stroke", help="Trace glyph strokes or reveal each line from left to right.")
+    parser.add_argument("--draw-text-order", choices=["before", "after"], default="after", help="Reveal text before or after the image strokes.")
+
+
+def _add_block_animation_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--animation-preset",
+        choices=["classic", "block-speedpaint"],
+        default="classic",
+        help="Classic whole-scene drawing or object-by-object outline/detail/crayon beats.",
+    )
+    parser.add_argument(
+        "--story-text",
+        help="Legacy explicit full caption revealed from left to right by block-speedpaint.",
+    )
+    parser.add_argument("--max-draw-blocks", type=int, default=6, help="Maximum automatically inferred object blocks.")
+    parser.add_argument(
+        "--draw-blocks",
+        type=int,
+        help="Preferred maximum natural block count; connected objects are never split to reach it.",
+    )
+    parser.add_argument("--block-overlap", type=float, default=0.08, help="Overlap between adjacent block windows (0-0.65).")
+    parser.add_argument("--block-order", choices=["reading", "source"], default="reading")
+    parser.add_argument("--block-sequence", type=_parse_block_sequence, help="Explicit inferred block ids, such as 1,0.")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -217,14 +335,16 @@ def _build_parser() -> argparse.ArgumentParser:
     photo.add_argument("--height", type=int, help="Output height. If omitted, render-photo uses the extracted line-art image height.")
     photo.add_argument("--tail-color", type=float, default=2.0)
     photo.add_argument("--source-fit", choices=["exact", "blur-fill", "contain", "cover"], default="exact")
-    photo.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade"], default="contour-wipe")
+    photo.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade", "left-to-right-gradient"], default="contour-wipe")
     photo.add_argument("--color-blocks", type=int, default=18)
+    photo.add_argument("--line-reveal", choices=["stroke", "detail-wipe"], default="stroke", help="Trace strokes or show a simple sketch immediately and add detail from left to right.")
+    photo.add_argument("--base-line-opacity", type=float, default=0.76, help="Initial contour and black-hair opacity used by detail-wipe (0.0-1.0).")
     photo.add_argument("--no-lineart-snap", action="store_true")
     photo.add_argument("--lineart-snap-threshold", type=int, default=DEFAULT_LINE_ART_SNAP_THRESHOLD)
     photo.add_argument("--line-thickness", type=int, default=0, help="Rendered stroke width. Use 0 to adapt to the source line art, or a positive value to override it.")
     photo.add_argument("--stroke-detail", choices=["balanced", "rich", "max"], default="rich")
-    photo.add_argument("--draw-text")
-    photo.add_argument("--draw-text-position", choices=["bottom", "top", "center"], default="bottom")
+    _add_draw_text_arguments(photo)
+    _add_block_animation_arguments(photo)
     photo.add_argument("--hand", default="asian")
     photo.add_argument("--hand-scale", type=float, default=1.0)
     photo.set_defaults(command="render-photo")
@@ -241,14 +361,16 @@ def _build_parser() -> argparse.ArgumentParser:
     render.add_argument("--mode", choices=["smooth", "grid"], default="smooth", help="Compatibility option. Smooth is the maintained renderer.")
     render.add_argument("--source-image", type=Path, help="Optional original/color image used for the final color fade while drawing from the line-art image.")
     render.add_argument("--source-fit", choices=["exact", "blur-fill", "contain", "cover"], default="blur-fill", help="How to fit --source-image for the final color fill.")
-    render.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade"], default="contour-wipe", help="Final color fill style.")
+    render.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade", "left-to-right-gradient"], default="contour-wipe", help="Final color fill style.")
     render.add_argument("--color-blocks", type=int, default=18, help="Number of horizontal blocks used by top-down color fill.")
+    render.add_argument("--line-reveal", choices=["stroke", "detail-wipe"], default="stroke", help="Trace strokes or show a simple sketch immediately and add detail from left to right.")
+    render.add_argument("--base-line-opacity", type=float, default=0.76, help="Initial contour and black-hair opacity used by detail-wipe (0.0-1.0).")
     render.add_argument("--no-lineart-snap", action="store_true", help="Disable snapping to the original complete line-art image before color fill.")
     render.add_argument("--lineart-snap-threshold", type=int, default=DEFAULT_LINE_ART_SNAP_THRESHOLD, help="Threshold used by line-art snap. Lower avoids thickening/noise from gray pixels.")
     render.add_argument("--line-thickness", type=int, default=0, help="Rendered stroke width. Use 0 to adapt to the source line art, or a positive value to override it.")
     render.add_argument("--stroke-detail", choices=["balanced", "rich", "max"], default="rich", help="Raster stroke extraction detail. Rich keeps short semantic details; max keeps tiny logo/facial strokes.")
-    render.add_argument("--draw-text", help="Append a short hand-drawn text title after the image strokes, for example: --draw-text '温馨的一家'.")
-    render.add_argument("--draw-text-position", choices=["bottom", "top", "center"], default="bottom", help="Placement for --draw-text.")
+    _add_draw_text_arguments(render)
+    _add_block_animation_arguments(render)
     render.add_argument("--hand", default="asian", help="Hand cursor: asian (default), black, children, white, procedural, none, or a custom PNG/WebP path.")
     render.add_argument("--hand-scale", type=float, default=1.0)
     render.set_defaults(command="render-image")
@@ -261,42 +383,158 @@ def _build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Run full script-to-video pipeline.")
     run.add_argument("script", type=Path)
     run.add_argument("-o", "--output", type=Path, required=True)
-    run.add_argument("--scenes", type=int, default=4)
-    run.add_argument("--fps", type=int, default=60)
+    run.add_argument(
+        "--scenes",
+        type=int,
+        default=4,
+        help="Target count for automatic planning; ignored when --scene-plan is provided.",
+    )
+    run.add_argument("--fps", type=int, default=30)
     run.add_argument("--width", type=int, default=1920)
     run.add_argument("--height", type=int, default=1080)
     run.add_argument("--tail-color", type=float, default=2.0)
-    run.add_argument("--voice", default="zh-CN-XiaoxiaoNeural")
+    run.add_argument(
+        "--tts-provider",
+        choices=["none", "edge", "doubao"],
+        default=settings.tts_provider,
+        help="Narration provider. Use none to render a completely silent video.",
+    )
+    run.add_argument("--voice", help="Provider voice ID. Defaults to the selected provider's recommended voice.")
+    run.add_argument("--image-model", default=settings.image_model, help="OpenAI storyboard model; defaults to gpt-image-2.")
+    run.add_argument("--image-quality", choices=["low", "medium", "high", "auto"], default=settings.image_quality)
+    run.add_argument("--lineart-provider", choices=lineart_provider_choices, default="auto")
+    run.add_argument(
+        "--scene-assets",
+        choices=["auto", "color-to-lineart", "direct-lineart"],
+        default="auto",
+        help="Generate color storyboards then extract local line art; direct-lineart is for Mock previews only.",
+    )
+    run.add_argument(
+        "--storyboard-dir",
+        type=Path,
+        help="Use precomputed scene_01.png, scene_02.png... color storyboards (for example from Codex image generation).",
+    )
+    run.add_argument(
+        "--scene-plan",
+        type=Path,
+        help=(
+            "Use an explicit JSON scene list instead of remote scene planning. "
+            "With --storyboard-dir, only the selected TTS provider is initialized."
+        ),
+    )
+    run.add_argument(
+        "--animation-preset",
+        choices=["classic", "block-speedpaint"],
+        default="block-speedpaint",
+    )
+    run.add_argument("--max-draw-blocks", type=int, default=6, help="Maximum automatically inferred scene blocks.")
+    run.add_argument(
+        "--draw-blocks",
+        type=int,
+        default=4,
+        help="Prefer at most this many natural story blocks; connected objects are never split. Use 0 for automatic grouping.",
+    )
+    run.add_argument(
+        "--block-overlap",
+        type=float,
+        default=0.16,
+        help="Timing overlap between adjacent drawing blocks (0-0.65).",
+    )
+    run.add_argument("--block-order", choices=["reading", "source"], default="reading")
+    run.add_argument("--block-sequence", type=_parse_block_sequence, help="Explicit inferred block ids, such as 1,0.")
+    caption_group = run.add_mutually_exclusive_group()
+    caption_group.add_argument(
+        "--captions",
+        action="store_true",
+        help="Deprecated no-op; use --burn-subtitles to burn the generated sidecar SRT.",
+    )
+    caption_group.add_argument(
+        "--no-captions",
+        action="store_false",
+        dest="captions",
+        help="Deprecated no-op; subtitle burn-in is disabled by default.",
+    )
+    caption_group.add_argument(
+        "--burn-subtitles",
+        action="store_true",
+        help="Burn the generated narration SRT into the final MP4 while keeping the sidecar file.",
+    )
+    run.add_argument(
+        "--subtitle-font",
+        default="sans-serif",
+        help="Font family used for burned subtitles; libass selects a glyph-compatible fallback.",
+    )
+    run.add_argument(
+        "--subtitle-font-size",
+        type=float,
+        default=16.0,
+        help="Burned subtitle size in ASS scale units (16 is suitable for 16:9 video).",
+    )
+    run.add_argument(
+        "--subtitle-margin-v",
+        type=int,
+        default=22,
+        help="Bottom margin for burned subtitles in ASS scale units.",
+    )
+    run.add_argument(
+        "--subtitle-outline",
+        type=float,
+        default=1.6,
+        help="Black outline width for burned subtitles in ASS scale units.",
+    )
     run.add_argument("--resume", action="store_true")
     run.add_argument("--mock", action="store_true")
     run.add_argument("--hand", default="asian", help="Hand cursor: asian (default), black, children, white, procedural, none, or a custom PNG/WebP path.")
     run.add_argument("--hand-scale", type=float, default=1.0)
-    run.set_defaults(command="run")
+    run.set_defaults(command="run", captions=False, burn_subtitles=False)
     return parser
 
 
 def _doctor() -> int:
-    checks = {
+    required_checks = {
         "ffmpeg": _check(lambda: ffmpeg_path()),
         "numpy": _check(lambda: __import__("numpy")),
         "Pillow": _check(lambda: __import__("PIL")),
         "pydantic": _check(lambda: __import__("pydantic")),
     }
-    for name, ok in checks.items():
+    capability_checks = {
+        "openai-sdk": _check(lambda: __import__("openai")),
+        "edge-tts": _check(lambda: __import__("edge_tts")),
+        "torch": _check(lambda: __import__("torch")),
+        "local-lineart": _check(lambda: get_lineart_provider("auto")),
+    }
+    runtime_settings = type(settings).from_env()
+    configuration = {
+        "OPENAI_API_KEY": bool(runtime_settings.openai_api_key),
+        "doubao-tts-auth": bool(
+            runtime_settings.doubao_tts_api_key
+            or (runtime_settings.doubao_tts_app_id and runtime_settings.doubao_tts_access_key)
+        ),
+    }
+
+    for name, ok in required_checks.items():
         print(f"{name}: {'ok' if ok else 'missing'}")
-    return 0 if all(checks.values()) else 1
+    for name, ok in capability_checks.items():
+        print(f"{name}: {'ok' if ok else 'missing'}")
+    for name, configured in configuration.items():
+        print(f"{name}: {'configured' if configured else 'unconfigured'}")
+
+    # Credentials are intentionally informational: Mock mode and precomputed
+    # assets remain usable without paid API access. Missing runtime packages or
+    # the neural line-art model make the corresponding production path fail.
+    return 0 if all((*required_checks.values(), *capability_checks.values())) else 1
 
 
 def _check(fn) -> bool:
     try:
         fn()
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - a doctor check reports failure for any dependency error
         return False
 
 
-def _even_dimension(value: float | int) -> int:
-    rounded = max(2, int(round(value)))
+def _even_dimension(value: float) -> int:
+    rounded = max(2, round(value))
     return rounded - rounded % 2
 
 
@@ -365,8 +603,8 @@ def _normalize_lineart(
     threshold: int = 224,
     clear_edge: int = 6,
 ) -> None:
-    from PIL import Image, ImageOps
     import numpy as np
+    from PIL import Image, ImageOps
 
     raw = Image.open(image).convert("RGB")
     gray = ImageOps.autocontrast(raw.convert("L"))

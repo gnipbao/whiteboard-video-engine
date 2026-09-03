@@ -2,6 +2,30 @@
 
 from __future__ import annotations
 
-from .base import ImageProvider, LLMProvider, ProviderBundle, TTSProvider, get_providers
+from .base import (
+    ImageProvider,
+    LLMProvider,
+    ProviderBundle,
+    SpeechSentenceTiming,
+    SpeechSynthesisResult,
+    SpeechWordTiming,
+    TTSProvider,
+    get_image_provider,
+    get_llm_provider,
+    get_providers,
+    get_tts_provider,
+)
 
-__all__ = ["ImageProvider", "LLMProvider", "ProviderBundle", "TTSProvider", "get_providers"]
+__all__ = [
+    "ImageProvider",
+    "LLMProvider",
+    "ProviderBundle",
+    "SpeechSentenceTiming",
+    "SpeechSynthesisResult",
+    "SpeechWordTiming",
+    "TTSProvider",
+    "get_image_provider",
+    "get_llm_provider",
+    "get_providers",
+    "get_tts_provider",
+]
