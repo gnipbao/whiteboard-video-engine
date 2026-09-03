@@ -74,6 +74,7 @@ class CrayonFillCache:
     wave: np.ndarray
     grain: np.ndarray
     foreground: np.ndarray
+    source: np.ndarray
     textured_source: np.ndarray
 
 
@@ -1437,6 +1438,7 @@ def _prepare_crayon_fill_cache(source: Image.Image) -> CrayonFillCache:
         wave=wave[:, None],
         grain=grain,
         foreground=foreground,
+        source=source_arr.astype(np.uint8),
         textured_source=textured_source.astype(np.uint8),
     )
 
@@ -1472,6 +1474,67 @@ def _composite_cached_source(canvas: Image.Image, cache: CrayonFillCache, alpha:
     canvas_arr = np.asarray(canvas.convert("RGB"), dtype=np.float32)
     source_arr = cache.textured_source.astype(np.float32)
     out = canvas_arr * (1.0 - alpha[:, :, None]) + source_arr * alpha[:, :, None]
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), mode="RGB")
+
+
+def _block_fill_alpha(
+    progress: float,
+    cache: CrayonFillCache,
+    bounds: tuple[int, int, int, int],
+    region_mask: np.ndarray,
+    style: str,
+) -> tuple[np.ndarray, float]:
+    """Build a temporally stable object-local reveal for one media family."""
+
+    if region_mask.shape != cache.foreground.shape:
+        raise ValueError("Block region mask does not match canvas size")
+    if style == "crayon":
+        return _crayon_reveal_alpha(
+            progress,
+            cache,
+            bounds,
+            region_mask=region_mask,
+        )
+    profiles = {
+        "clean": (0.035, 0.0, 0.02),
+        "soft-wash": (0.12, 0.22, 0.08),
+        "dry-brush": (0.075, 0.72, 0.30),
+    }
+    if style not in profiles:
+        raise ValueError(f"Unsupported block fill style: {style}")
+    feather_ratio, wave_strength, grain_strength = profiles[style]
+    x0, _y0, x1, _y1 = bounds
+    local_width = max(1, x1 - x0)
+    feather = max(5.0, local_width * feather_ratio)
+    p = ease_in_out_sine(progress)
+    lead = x0 + p * (local_width + feather * 2.0) - feather
+    distance = lead + cache.wave * wave_strength - cache.columns
+    alpha = np.clip((distance + feather) / (feather * 2.0), 0.0, 1.0)
+    if progress >= 1:
+        alpha.fill(1.0)
+    edge = (alpha > 0.0) & (alpha < 1.0)
+    if grain_strength:
+        alpha[edge] = np.clip(
+            alpha[edge] + (cache.grain[edge] - 0.5) * grain_strength,
+            0.0,
+            1.0,
+        )
+    alpha *= cache.foreground
+    alpha *= np.clip(region_mask, 0.0, 1.0)
+    return alpha, lead
+
+
+def _composite_block_source(
+    canvas: Image.Image,
+    cache: CrayonFillCache,
+    alpha: np.ndarray,
+    style: str,
+) -> Image.Image:
+    """Composite original or subtly textured color according to the style recipe."""
+
+    canvas_arr = np.asarray(canvas.convert("RGB"), dtype=np.float32)
+    source = cache.textured_source if style in {"crayon", "dry-brush"} else cache.source
+    out = canvas_arr * (1.0 - alpha[:, :, None]) + source.astype(np.float32) * alpha[:, :, None]
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), mode="RGB")
 
 
@@ -1758,6 +1821,7 @@ def render_block_story_scene(
     block_overlap: float = 0.08,
     block_order: str = "reading",
     block_sequence: list[int] | None = None,
+    block_fill_style: str = "crayon",
 ) -> None:
     """Render object blocks as outline, detail, then local crayon-color beats."""
 
@@ -1765,6 +1829,8 @@ def render_block_story_scene(
         raise ValueError("No strokes to render")
     if duration <= 0 or fps <= 0:
         raise ValueError("Block story duration and fps must be positive")
+    if block_fill_style not in {"crayon", "clean", "soft-wash", "dry-brush"}:
+        raise ValueError(f"Unsupported block fill style: {block_fill_style}")
     try:
         TextRole(text_role)
     except ValueError as exc:
@@ -1976,11 +2042,12 @@ def render_block_story_scene(
                 fill_phase = phases[2]
                 if fill_phase <= 0:
                     continue
-                block_alpha, lead = _crayon_reveal_alpha(
+                block_alpha, lead = _block_fill_alpha(
                     fill_phase,
                     crayon_cache,
                     state.block.reveal_bounds,
-                    region_mask=state.region_mask,
+                    state.region_mask,
+                    block_fill_style,
                 )
                 if combined_alpha is None:
                     combined_alpha = block_alpha.copy()
@@ -1996,7 +2063,12 @@ def render_block_story_scene(
                         0.0,
                     )
             if combined_alpha is not None:
-                frame = _composite_cached_source(line_frame, crayon_cache, combined_alpha)
+                frame = _composite_block_source(
+                    line_frame,
+                    crayon_cache,
+                    combined_alpha,
+                    block_fill_style,
+                )
             if completed_mask is not None:
                 frame = _complete_line_art_canvas(
                     frame,
@@ -2336,6 +2408,7 @@ def render_image(
     block_overlap: float = 0.08,
     block_order: str = "reading",
     block_sequence: list[int] | None = None,
+    block_fill_style: str = "crayon",
 ) -> None:
     """Extract strokes from one image and render a scene MP4."""
 
@@ -2439,6 +2512,7 @@ def render_image(
             block_overlap=block_overlap,
             block_order=block_order,
             block_sequence=block_sequence,
+            block_fill_style=block_fill_style,
         )
         return
     if animation_preset != "classic":

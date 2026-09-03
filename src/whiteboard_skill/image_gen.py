@@ -11,7 +11,7 @@ from .logging_setup import logger
 from .models import Scene
 from .preprocess import quality_check
 from .providers import ImageProvider
-from .providers.lineart import LineArtProvider
+from .providers.lineart import LineArtProvider, lineart_cache_identity
 
 REGISTERED_CANVAS_NORMALIZATION_VERSION = 2
 _NEAR_MATCHING_ASPECT_RATIO_TOLERANCE = 0.005
@@ -68,7 +68,12 @@ def generate_scene_images(
             ratio = quality_check(out_path, size)
             if 0.003 <= ratio <= 0.32:
                 break
-            logger.warning("scene {} image foreground ratio {:.3f} outside target range on attempt {}", scene.id, ratio, attempt)
+            logger.warning(
+                "scene {} image foreground ratio {:.3f} outside target range on attempt {}",
+                scene.id,
+                ratio,
+                attempt,
+            )
         _assign_scene_image(scene, out_path, asset_role)
         scene.source_generation_fingerprint = generation_fingerprint
     return scenes
@@ -94,7 +99,9 @@ def use_precomputed_source_images(
             images_dir / f"scene_{scene.id:02d}{suffix}"
             for suffix in (".png", ".webp", ".jpg", ".jpeg")
         ]
-        source = next((candidate for candidate in candidates if candidate.exists()), None)
+        source = next(
+            (candidate for candidate in candidates if candidate.exists()), None
+        )
         if source is None:
             raise FileNotFoundError(
                 f"Missing precomputed storyboard scene_{scene.id:02d}.png/.webp/.jpg in {images_dir}"
@@ -141,8 +148,7 @@ def extract_scene_lineart(
         source_fingerprint = stable_fingerprint(
             {
                 "normalization_version": REGISTERED_CANVAS_NORMALIZATION_VERSION,
-                "provider": provider_identity(provider),
-                "provider_name": getattr(provider, "name", None),
+                "provider": lineart_cache_identity(provider),
                 "size": size,
                 "source_sha256": file_sha256(scene.source_image_path),
             }
@@ -154,10 +160,16 @@ def extract_scene_lineart(
         ):
             provider.extract(scene.source_image_path, out_path)
         _verify_image(out_path)
-        _normalize_registered_canvas(out_path, out_path, size, background=(255, 255, 255))
+        _normalize_registered_canvas(
+            out_path, out_path, size, background=(255, 255, 255)
+        )
         ratio = quality_check(out_path, size)
         if not 0.001 <= ratio <= 0.5:
-            logger.warning("scene {} extracted line-art foreground ratio {:.3f} looks unusual", scene.id, ratio)
+            logger.warning(
+                "scene {} extracted line-art foreground ratio {:.3f} looks unusual",
+                scene.id,
+                ratio,
+            )
         scene.lineart_path = out_path
         scene.lineart_source_fingerprint = source_fingerprint
         scene.image_path = out_path
@@ -168,7 +180,12 @@ def _assign_scene_image(scene: Scene, out_path: Path, asset_role: str) -> None:
     if asset_role == "source":
         scene.source_image_path = out_path
     else:
+        # A direct-line-art preview has no registered color source.  Clear any
+        # value left by a resumed color-to-line-art run so rendering cannot
+        # accidentally reveal stale color or fingerprint a removed asset.
+        scene.source_image_path = None
         scene.lineart_path = out_path
+        scene.lineart_source_fingerprint = None
         scene.image_path = out_path
 
 
@@ -218,7 +235,10 @@ def _normalize_registered_canvas(
             source.getpixel((0, source.height - 1)),
             source.getpixel((source.width - 1, source.height - 1)),
         )
-        background = tuple(round(sum(pixel[channel] for pixel in corners) / len(corners)) for channel in range(3))
+        background = tuple(
+            round(sum(pixel[channel] for pixel in corners) / len(corners))
+            for channel in range(3)
+        )
     source = ImageOps.contain(source, size, method=Image.Resampling.LANCZOS)
     canvas = Image.new("RGB", size, background)
     canvas.paste(source, ((width - source.width) // 2, (height - source.height) // 2))

@@ -17,6 +17,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from ..fingerprints import file_sha256
+
+LINEART_CACHE_IDENTITY_SCHEMA = 1
+_SMALL_ARTIFACT_HASH_LIMIT = 4 * 1024 * 1024
+
 
 class LineArtProvider(ABC):
     """Extract a dark-on-white line-art bitmap from a color image."""
@@ -36,6 +41,29 @@ class ExternalCommandLineArt(LineArtProvider):
     def __init__(self, command: str, name: str) -> None:
         self.command = command
         self.name = name
+        self._cache_identity: dict[str, object] | None = None
+
+    def cache_identity(self) -> dict[str, object]:
+        """Describe the command, wrapper, model artifacts, and cleanup settings."""
+
+        if self._cache_identity is None:
+            command_files = _command_artifact_paths(self.command)
+            model_files = _known_model_artifact_paths(self.name, command_files)
+            indexed_artifacts: dict[str, dict[str, object]] = {}
+            for path in (*command_files, *model_files):
+                identity = _artifact_identity(path)
+                indexed_artifacts[str(identity["path"])] = identity
+            self._cache_identity = {
+                "schema": LINEART_CACHE_IDENTITY_SCHEMA,
+                "name": self.name,
+                "command": self.command,
+                "artifacts": sorted(
+                    indexed_artifacts.values(),
+                    key=lambda item: str(item["path"]),
+                ),
+                "cleanup": _lineart_cleanup_params(self.name),
+            }
+        return self._cache_identity
 
     def extract(self, color_png: Path, out_png: Path) -> Path:
         out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +93,25 @@ class Anime2SketchLineArt(ExternalCommandLineArt):
 
     def __init__(self, command: str) -> None:
         super().__init__(command, "anime2sketch")
+
+
+def lineart_cache_identity(provider: object) -> dict[str, object]:
+    """Return output-affecting identity without assuming a concrete provider."""
+
+    cls = provider.__class__
+    identity: dict[str, object] = {
+        "schema": LINEART_CACHE_IDENTITY_SCHEMA,
+        "provider": f"{cls.__module__}.{cls.__qualname__}",
+    }
+    method = getattr(provider, "cache_identity", None)
+    if callable(method):
+        details = method()
+        if not isinstance(details, dict):
+            raise TypeError("Line-art cache_identity() must return an object")
+        identity["settings"] = details
+    else:
+        identity["name"] = getattr(provider, "name", None)
+    return identity
 
 
 def get_lineart_provider(name: str = "auto") -> LineArtProvider:
@@ -104,9 +151,17 @@ def get_lineart_provider(name: str = "auto") -> LineArtProvider:
             strict_local=True,
         )
         if not command:
-            raise RuntimeError("Informative-Drawings command not found. Set WHITEBOARD_INFORMATIVE_DRAWINGS_CMD.")
+            raise RuntimeError(
+                "Informative-Drawings command not found. Set WHITEBOARD_INFORMATIVE_DRAWINGS_CMD."
+            )
         return InformativeDrawingsLineArt(command)
-    if normalized in {"anime", "anime2sketch", "manga", "manga-line", "manga-line-extraction"}:
+    if normalized in {
+        "anime",
+        "anime2sketch",
+        "manga",
+        "manga-line",
+        "manga-line-extraction",
+    }:
         command = _command_from_env_path_or_local_wrapper(
             "WHITEBOARD_ANIME2SKETCH_CMD",
             "anime2sketch-lineart",
@@ -115,7 +170,9 @@ def get_lineart_provider(name: str = "auto") -> LineArtProvider:
             strict_local=True,
         )
         if not command:
-            raise RuntimeError("Anime2Sketch command not found. Set WHITEBOARD_ANIME2SKETCH_CMD.")
+            raise RuntimeError(
+                "Anime2Sketch command not found. Set WHITEBOARD_ANIME2SKETCH_CMD."
+            )
         return Anime2SketchLineArt(command)
     raise ValueError(f"Unknown line-art provider: {name}")
 
@@ -191,12 +248,75 @@ def _lineart_python(wrapper: Path) -> Path:
     return Path("python3")
 
 
+def _command_artifact_paths(command: str) -> tuple[Path, ...]:
+    """Find executable and file arguments whose replacement can change output."""
+
+    paths: list[Path] = []
+    for index, token in enumerate(shlex.split(command)):
+        if "{" in token or "}" in token:
+            continue
+        candidate = Path(token).expanduser()
+        if index == 0 and not candidate.is_file():
+            executable = shutil.which(token)
+            if executable:
+                candidate = Path(executable)
+        if candidate.is_file():
+            paths.append(candidate.resolve())
+    return tuple(paths)
+
+
+def _known_model_artifact_paths(
+    provider_name: str,
+    command_files: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    """Locate supported providers' weights relative to a discovered wrapper."""
+
+    wrappers = [path for path in command_files if path.suffix == ".py"]
+    if not wrappers:
+        return ()
+    tools_root = wrappers[-1].parents[1]
+    if "anime2sketch" in provider_name.lower():
+        candidates = (
+            tools_root / "Anime2Sketch" / "weights" / "improved.bin",
+            tools_root / "Anime2Sketch" / "weights" / "netG.pth",
+        )
+    else:
+        candidates = (
+            tools_root
+            / "informative-drawings"
+            / "checkpoints"
+            / "model"
+            / "anime_style"
+            / "netG_A_latest.pth",
+            tools_root
+            / "informative-drawings"
+            / "checkpoints"
+            / "anime_style"
+            / "netG_A_latest.pth",
+        )
+    return tuple(path.resolve() for path in candidates if path.is_file())
+
+
+def _artifact_identity(path: Path) -> dict[str, object]:
+    """Hash small wrappers and stat large model files without loading them in memory."""
+
+    resolved = path.resolve()
+    stat = resolved.stat()
+    identity: dict[str, object] = {
+        "path": str(resolved),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+    if stat.st_size <= _SMALL_ARTIFACT_HASH_LIMIT:
+        identity["sha256"] = file_sha256(resolved)
+    return identity
+
+
 def _informative_weights_ready(wrapper: Path) -> bool:
     root = wrapper.parents[1] / "informative-drawings"
-    return (
-        (root / "checkpoints" / "anime_style" / "netG_A_latest.pth").exists()
-        or (root / "checkpoints" / "model" / "anime_style" / "netG_A_latest.pth").exists()
-    )
+    return (root / "checkpoints" / "anime_style" / "netG_A_latest.pth").exists() or (
+        root / "checkpoints" / "model" / "anime_style" / "netG_A_latest.pth"
+    ).exists()
 
 
 def _anime2sketch_weights_ready(wrapper: Path) -> bool:
@@ -250,9 +370,24 @@ def _lineart_cleanup_params(provider_name: str) -> dict[str, float | int] | None
 
     normalized = provider_name.lower()
     presets: dict[str, dict[str, float | int]] = {
-        "soft": {"threshold": 235, "min_area_ratio": 0.007, "min_span_ratio": 0.006, "dilation": 0},
-        "balanced": {"threshold": 224, "min_area_ratio": 0.011, "min_span_ratio": 0.008, "dilation": 0},
-        "strong": {"threshold": 216, "min_area_ratio": 0.018, "min_span_ratio": 0.012, "dilation": 1},
+        "soft": {
+            "threshold": 235,
+            "min_area_ratio": 0.007,
+            "min_span_ratio": 0.006,
+            "dilation": 0,
+        },
+        "balanced": {
+            "threshold": 224,
+            "min_area_ratio": 0.011,
+            "min_span_ratio": 0.008,
+            "dilation": 0,
+        },
+        "strong": {
+            "threshold": 216,
+            "min_area_ratio": 0.018,
+            "min_span_ratio": 0.012,
+            "dilation": 1,
+        },
     }
     if mode == "auto":
         params = presets["balanced" if "anime2sketch" in normalized else "soft"].copy()
@@ -261,9 +396,17 @@ def _lineart_cleanup_params(provider_name: str) -> dict[str, float | int] | None
             raise RuntimeError(f"Unknown WHITEBOARD_LINEART_CLEANUP mode: {mode}")
         params = presets[mode].copy()
 
-    env_prefix = "WHITEBOARD_ANIME2SKETCH" if "anime2sketch" in normalized else "WHITEBOARD_LINEART"
-    params["threshold"] = int(os.getenv(f"{env_prefix}_CLEAN_THRESHOLD", str(params["threshold"])))
-    params["dilation"] = int(os.getenv(f"{env_prefix}_CLEAN_DILATION", str(params["dilation"])))
+    env_prefix = (
+        "WHITEBOARD_ANIME2SKETCH"
+        if "anime2sketch" in normalized
+        else "WHITEBOARD_LINEART"
+    )
+    params["threshold"] = int(
+        os.getenv(f"{env_prefix}_CLEAN_THRESHOLD", str(params["threshold"]))
+    )
+    params["dilation"] = int(
+        os.getenv(f"{env_prefix}_CLEAN_DILATION", str(params["dilation"]))
+    )
     return params
 
 
@@ -292,7 +435,10 @@ def _binary_dilate(mask: np.ndarray, iterations: int = 1) -> np.ndarray:
         result = np.zeros_like(result, dtype=bool)
         for y_offset in range(3):
             for x_offset in range(3):
-                result |= padded[y_offset : y_offset + mask.shape[0], x_offset : x_offset + mask.shape[1]]
+                result |= padded[
+                    y_offset : y_offset + mask.shape[0],
+                    x_offset : x_offset + mask.shape[1],
+                ]
     return result
 
 
@@ -312,7 +458,9 @@ def _dilate_grayscale_ink(gray: np.ndarray, iterations: int = 1) -> np.ndarray:
     return result
 
 
-def _remove_small_ink_components(mask: np.ndarray, min_area: int, min_span: int) -> np.ndarray:
+def _remove_small_ink_components(
+    mask: np.ndarray, min_area: int, min_span: int
+) -> np.ndarray:
     if not np.any(mask):
         return mask
     height, width = mask.shape
@@ -337,7 +485,12 @@ def _remove_small_ink_components(mask: np.ndarray, min_area: int, min_span: int)
                     if dx == 0 and dy == 0:
                         continue
                     nx, ny = x + dx, y + dy
-                    if 0 <= nx < width and 0 <= ny < height and mask[ny, nx] and not visited[ny, nx]:
+                    if (
+                        0 <= nx < width
+                        and 0 <= ny < height
+                        and mask[ny, nx]
+                        and not visited[ny, nx]
+                    ):
                         visited[ny, nx] = True
                         stack.append((nx, ny))
         span = max(max_x - min_x + 1, max_y - min_y + 1)

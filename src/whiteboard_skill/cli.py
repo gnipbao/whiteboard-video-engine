@@ -17,6 +17,12 @@ from .preprocess import quality_check, svg_to_strokes, to_strokes
 from .providers import get_llm_provider
 from .providers.lineart import get_lineart_provider, vectorize_with_vtracer
 from .scene_split import split_script
+from .styles import (
+    available_styles,
+    recommend_styles,
+    resolve_style,
+    style_display_payload,
+)
 from .whiteboard import DEFAULT_LINE_ART_SNAP_THRESHOLD, available_hands, render_image
 
 
@@ -24,7 +30,9 @@ def _parse_block_sequence(value: str) -> list[int]:
     try:
         sequence = [int(item.strip()) for item in value.split(",") if item.strip()]
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("block sequence must be comma-separated integer ids") from exc
+        raise argparse.ArgumentTypeError(
+            "block sequence must be comma-separated integer ids"
+        ) from exc
     if not sequence:
         raise argparse.ArgumentTypeError("block sequence cannot be empty")
     return sequence
@@ -47,19 +55,80 @@ def main(argv: list[str] | None = None) -> int:
             for hand in available_hands():
                 print(hand)
             return 0
+        if args.command == "list-styles":
+            selected_styles = available_styles()
+            if args.compatibility:
+                selected_styles = tuple(
+                    style
+                    for style in selected_styles
+                    if style.compatibility == args.compatibility
+                )
+            payload = [style_display_payload(style) for style in selected_styles]
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                for item in payload:
+                    print(
+                        f"{item['order']:>2}  {item['id']} [{item['compatibility']}]  "
+                        f"{item['name_zh']} / {item['name_en']} — {item['summary']}"
+                    )
+            return 0
+        if args.command == "recommend-styles":
+            script = args.script.read_text(encoding="utf-8")
+            payload = [
+                style_display_payload(style)
+                for style in recommend_styles(script, limit=args.limit)
+            ]
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                for index, item in enumerate(payload, start=1):
+                    print(
+                        f"{index}. {item['id']}  {item['name_zh']} / "
+                        f"{item['name_en']} — {item['summary']}"
+                    )
+            return 0
         if args.command == "plan-script":
             script = args.script.read_text(encoding="utf-8")
-            provider = get_llm_provider(mock=not args.real)
-            scenes = split_script(script, provider, args.scenes)
+            style_selector = args.style
+            if (
+                style_selector is None
+                and args.custom_style is None
+                and args.custom_style_file is None
+            ):
+                style_selector = settings.visual_style
+            style = resolve_style(
+                style_selector,
+                script=script,
+                custom_style=args.custom_style,
+                custom_style_file=args.custom_style_file,
+            )
+            provider = get_llm_provider(
+                mock=not args.real,
+                style_guidance=style.planner_guidance,
+            )
+            scenes = split_script(
+                script,
+                provider,
+                args.scenes,
+                style=style,
+                theme=args.theme,
+            )
             payload = [_scene_payload(scene) for scene in scenes]
             args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            args.output.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
             print(args.output)
             return 0
         if args.command == "analyze-image":
-            payload = _analyze_image(args.image, (args.width, args.height), args.stroke_detail)
+            payload = _analyze_image(
+                args.image, (args.width, args.height), args.stroke_detail
+            )
             args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            args.output.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
             print(args.output)
             return 0
         if args.command == "normalize-lineart":
@@ -79,7 +148,9 @@ def main(argv: list[str] | None = None) -> int:
             print(args.output)
             return 0
         if args.command == "render-photo":
-            lineart_path = args.lineart_output or args.output.with_name(f"{args.output.stem}-lineart.png")
+            lineart_path = args.lineart_output or args.output.with_name(
+                f"{args.output.stem}-lineart.png"
+            )
             provider = get_lineart_provider(args.lineart_provider)
             provider.extract(args.image, lineart_path)
             render_input = lineart_path
@@ -89,9 +160,13 @@ def main(argv: list[str] | None = None) -> int:
                 render_input = args.svg_output
                 use_lineart_size = False
             if use_lineart_size:
-                resolution, used_source_size = _resolve_raster_resolution(lineart_path, args.width, args.height)
+                resolution, used_source_size = _resolve_raster_resolution(
+                    lineart_path, args.width, args.height
+                )
             else:
-                resolution, used_source_size = _resolve_raster_resolution(args.image, args.width, args.height)
+                resolution, used_source_size = _resolve_raster_resolution(
+                    args.image, args.width, args.height
+                )
             render_image(
                 render_input,
                 args.output,
@@ -129,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
                 block_overlap=args.block_overlap,
                 block_order=args.block_order,
                 block_sequence=args.block_sequence,
+                block_fill_style=args.block_fill_style,
             )
             print(args.output)
             return 0
@@ -136,7 +212,9 @@ def main(argv: list[str] | None = None) -> int:
             resolution = (args.width, args.height)
             if args.size_from_image:
                 if args.image.suffix.lower() == ".svg":
-                    raise ValueError("--size-from-image is only supported for raster line-art images")
+                    raise ValueError(
+                        "--size-from-image is only supported for raster line-art images"
+                    )
                 from PIL import Image
 
                 with Image.open(args.image) as source_image:
@@ -179,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
                 block_overlap=args.block_overlap,
                 block_order=args.block_order,
                 block_sequence=args.block_sequence,
+                block_fill_style=args.block_fill_style,
             )
             print(args.output)
             return 0
@@ -212,6 +291,15 @@ def main(argv: list[str] | None = None) -> int:
                 block_overlap=args.block_overlap,
                 block_order=args.block_order,
                 block_sequence=args.block_sequence,
+                visual_style=args.style,
+                custom_style=args.custom_style,
+                custom_style_file=args.custom_style_file,
+                visual_theme=args.theme,
+                block_fill_style=args.block_fill_style,
+                stroke_detail=args.stroke_detail,
+                line_thickness=args.line_thickness,
+                line_art_snap=args.line_art_snap,
+                line_art_snap_threshold=args.line_art_snap_threshold,
                 captions=args.captions,
                 burn_subtitles=args.burn_subtitles,
                 subtitle_font=args.subtitle_font,
@@ -222,7 +310,10 @@ def main(argv: list[str] | None = None) -> int:
             print(args.output)
             if project.subtitle_path is not None:
                 print(f"subtitles={project.subtitle_path}")
-            print(f"scenes={len(project.scenes)} work_dir={settings.work_dir / _slug(args.script.stem)}")
+            print(
+                f"style={project.visual_style_id} scenes={len(project.scenes)} "
+                f"work_dir={settings.work_dir / _slug(args.script.stem)}"
+            )
             return 0
     except Exception as exc:  # noqa: BLE001 - CLI boundary prints a concise provider/render error
         print(f"whiteboard: {exc}", file=sys.stderr)
@@ -240,23 +331,67 @@ def _resolve_draw_text(args: argparse.Namespace) -> str | None:
 
 def _add_draw_text_arguments(parser: argparse.ArgumentParser) -> None:
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("--draw-text", help="Text to reveal. Newlines are preserved; literal \\n is also accepted.")
-    source.add_argument("--draw-text-file", type=Path, help="UTF-8 text file used for longer multiline captions.")
+    source.add_argument(
+        "--draw-text",
+        help="Text to reveal. Newlines are preserved; literal \\n is also accepted.",
+    )
+    source.add_argument(
+        "--draw-text-file",
+        type=Path,
+        help="UTF-8 text file used for longer multiline captions.",
+    )
     parser.add_argument(
         "--draw-text-role",
         choices=[TextRole.ANNOTATION.value, TextRole.CAPTION.value],
         default=TextRole.ANNOTATION.value,
         help="Treat text as a short late annotation (default) or an explicit full caption.",
     )
-    parser.add_argument("--draw-text-position", choices=["bottom", "top", "center"], default="bottom")
-    parser.add_argument("--draw-text-align", choices=["left", "center", "right"], default="center")
-    parser.add_argument("--draw-text-width", type=float, default=0.82, help="Maximum text width as a fraction of the canvas (0.1-1.0).")
-    parser.add_argument("--draw-text-max-height", type=float, default=0.36, help="Maximum text block height as a fraction of the canvas (0.1-1.0).")
-    parser.add_argument("--draw-text-line-spacing", type=float, default=0.25, help="Line spacing as a fraction of the selected font size.")
-    parser.add_argument("--draw-text-font-size", type=int, help="Optional fixed font size in pixels; otherwise text is fit automatically.")
-    parser.add_argument("--draw-text-font", type=Path, help="Optional TTF/TTC/OTF font path, useful for a handwritten Chinese font.")
-    parser.add_argument("--draw-text-reveal", choices=["stroke", "line-wipe"], default="stroke", help="Trace glyph strokes or reveal each line from left to right.")
-    parser.add_argument("--draw-text-order", choices=["before", "after"], default="after", help="Reveal text before or after the image strokes.")
+    parser.add_argument(
+        "--draw-text-position", choices=["bottom", "top", "center"], default="bottom"
+    )
+    parser.add_argument(
+        "--draw-text-align", choices=["left", "center", "right"], default="center"
+    )
+    parser.add_argument(
+        "--draw-text-width",
+        type=float,
+        default=0.82,
+        help="Maximum text width as a fraction of the canvas (0.1-1.0).",
+    )
+    parser.add_argument(
+        "--draw-text-max-height",
+        type=float,
+        default=0.36,
+        help="Maximum text block height as a fraction of the canvas (0.1-1.0).",
+    )
+    parser.add_argument(
+        "--draw-text-line-spacing",
+        type=float,
+        default=0.25,
+        help="Line spacing as a fraction of the selected font size.",
+    )
+    parser.add_argument(
+        "--draw-text-font-size",
+        type=int,
+        help="Optional fixed font size in pixels; otherwise text is fit automatically.",
+    )
+    parser.add_argument(
+        "--draw-text-font",
+        type=Path,
+        help="Optional TTF/TTC/OTF font path, useful for a handwritten Chinese font.",
+    )
+    parser.add_argument(
+        "--draw-text-reveal",
+        choices=["stroke", "line-wipe"],
+        default="stroke",
+        help="Trace glyph strokes or reveal each line from left to right.",
+    )
+    parser.add_argument(
+        "--draw-text-order",
+        choices=["before", "after"],
+        default="after",
+        help="Reveal text before or after the image strokes.",
+    )
 
 
 def _add_block_animation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -270,19 +405,57 @@ def _add_block_animation_arguments(parser: argparse.ArgumentParser) -> None:
         "--story-text",
         help="Legacy explicit full caption revealed from left to right by block-speedpaint.",
     )
-    parser.add_argument("--max-draw-blocks", type=int, default=6, help="Maximum automatically inferred object blocks.")
+    parser.add_argument(
+        "--max-draw-blocks",
+        type=int,
+        default=6,
+        help="Maximum automatically inferred object blocks.",
+    )
     parser.add_argument(
         "--draw-blocks",
         type=int,
         help="Preferred maximum natural block count; connected objects are never split to reach it.",
     )
-    parser.add_argument("--block-overlap", type=float, default=0.08, help="Overlap between adjacent block windows (0-0.65).")
-    parser.add_argument("--block-order", choices=["reading", "source"], default="reading")
-    parser.add_argument("--block-sequence", type=_parse_block_sequence, help="Explicit inferred block ids, such as 1,0.")
+    parser.add_argument(
+        "--block-overlap",
+        type=float,
+        default=0.08,
+        help="Overlap between adjacent block windows (0-0.65).",
+    )
+    parser.add_argument(
+        "--block-order", choices=["reading", "source"], default="reading"
+    )
+    parser.add_argument(
+        "--block-sequence",
+        type=_parse_block_sequence,
+        help="Explicit inferred block ids, such as 1,0.",
+    )
+
+
+def _add_visual_style_arguments(parser: argparse.ArgumentParser) -> None:
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
+        "--style", help="Built-in style id, order, localized name, alias, or auto."
+    )
+    source.add_argument(
+        "--custom-style", help="Inline visual direction for a custom style recipe."
+    )
+    source.add_argument(
+        "--custom-style-file",
+        type=Path,
+        help="UTF-8 custom style description or constrained JSON recipe.",
+    )
+    parser.add_argument(
+        "--theme",
+        help="Optional story-specific art direction layered onto the selected style.",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="whiteboard", description="Generate hand-drawn whiteboard videos from scripts or line-art images.")
+    parser = argparse.ArgumentParser(
+        prog="whiteboard",
+        description="Generate hand-drawn whiteboard videos from scripts or line-art images.",
+    )
     parser.add_argument("--log-level", default=settings.log_level)
     sub = parser.add_subparsers(dest="command")
 
@@ -292,86 +465,271 @@ def _build_parser() -> argparse.ArgumentParser:
     hands = sub.add_parser("list-hands", help="List built-in hand cursor styles.")
     hands.set_defaults(command="list-hands")
 
+    styles = sub.add_parser("list-styles", help="List built-in visual style recipes.")
+    styles.add_argument(
+        "--json", action="store_true", help="Write machine-readable JSON."
+    )
+    styles.add_argument(
+        "--compatibility",
+        choices=["native", "adaptive", "experimental"],
+        help="Only show styles with this whiteboard-rendering compatibility level.",
+    )
+    styles.set_defaults(command="list-styles")
+
+    recommend = sub.add_parser(
+        "recommend-styles",
+        help="Recommend built-in visual styles for a UTF-8 story script.",
+    )
+    recommend.add_argument("script", type=Path)
+    recommend.add_argument("--limit", type=int, default=5)
+    recommend.add_argument(
+        "--json", action="store_true", help="Write machine-readable JSON."
+    )
+    recommend.set_defaults(command="recommend-styles")
+
     plan = sub.add_parser("plan-script", help="Split a script into storyboard JSON.")
     plan.add_argument("script", type=Path)
     plan.add_argument("-o", "--output", type=Path, required=True)
     plan.add_argument("--scenes", type=int, default=4)
-    plan.add_argument("--real", action="store_true", help="Use configured real LLM provider instead of deterministic mock planning.")
+    plan.add_argument(
+        "--real",
+        action="store_true",
+        help="Use configured real LLM provider instead of deterministic mock planning.",
+    )
+    _add_visual_style_arguments(plan)
     plan.set_defaults(command="plan-script")
 
-    analyze = sub.add_parser("analyze-image", help="Write a lightweight layer/stroke analysis JSON.")
+    analyze = sub.add_parser(
+        "analyze-image", help="Write a lightweight layer/stroke analysis JSON."
+    )
     analyze.add_argument("image", type=Path)
     analyze.add_argument("-o", "--output", type=Path, required=True)
     analyze.add_argument("--width", type=int, default=1920)
     analyze.add_argument("--height", type=int, default=1080)
-    analyze.add_argument("--stroke-detail", choices=["balanced", "rich", "max"], default="rich", help="Raster stroke extraction detail. Rich keeps short semantic details; max keeps tiny logo/facial strokes.")
+    analyze.add_argument(
+        "--stroke-detail",
+        choices=["balanced", "rich", "max"],
+        default="rich",
+        help="Raster stroke extraction detail. Rich keeps short semantic details; max keeps tiny logo/facial strokes.",
+    )
     analyze.set_defaults(command="analyze-image")
 
-    normalize = sub.add_parser("normalize-lineart", help="Normalize an existing line-art bitmap to pure black-on-white without dilation or thickening.")
+    normalize = sub.add_parser(
+        "normalize-lineart",
+        help="Normalize an existing line-art bitmap to pure black-on-white without dilation or thickening.",
+    )
     normalize.add_argument("image", type=Path)
     normalize.add_argument("-o", "--output", type=Path, required=True)
-    normalize.add_argument("--threshold", type=int, default=224, help="Dark-pixel threshold for pure B/W conversion. Lower values avoid thickening anti-aliased lines.")
-    normalize.add_argument("--clear-edge", type=int, default=6, help="Clear this many pixels on each canvas edge to remove generated borders.")
+    normalize.add_argument(
+        "--threshold",
+        type=int,
+        default=224,
+        help="Dark-pixel threshold for pure B/W conversion. Lower values avoid thickening anti-aliased lines.",
+    )
+    normalize.add_argument(
+        "--clear-edge",
+        type=int,
+        default=6,
+        help="Clear this many pixels on each canvas edge to remove generated borders.",
+    )
     normalize.set_defaults(command="normalize-lineart")
 
     lineart_provider_choices = ["auto", "informative", "anime2sketch", "anime", "manga"]
 
-    extract = sub.add_parser("extract-lineart", help="Extract local line art from a color image using installed neural providers.")
+    extract = sub.add_parser(
+        "extract-lineart",
+        help="Extract local line art from a color image using installed neural providers.",
+    )
     extract.add_argument("image", type=Path)
     extract.add_argument("-o", "--output", type=Path, required=True)
     extract.add_argument("--provider", choices=lineart_provider_choices, default="auto")
-    extract.add_argument("--svg-output", type=Path, help="Optional SVG output via vtracer when installed.")
+    extract.add_argument(
+        "--svg-output",
+        type=Path,
+        help="Optional SVG output via vtracer when installed.",
+    )
     extract.set_defaults(command="extract-lineart")
 
-    photo = sub.add_parser("render-photo", help="Extract local line art from a color image and render a whiteboard MP4 in one step.")
+    photo = sub.add_parser(
+        "render-photo",
+        help="Extract local line art from a color image and render a whiteboard MP4 in one step.",
+    )
     photo.add_argument("image", type=Path)
     photo.add_argument("-o", "--output", type=Path, required=True)
-    photo.add_argument("--lineart-output", type=Path, help="Optional extracted line-art PNG path.")
-    photo.add_argument("--svg-output", type=Path, help="Optional SVG output via vtracer when installed; SVG will be rendered if created.")
-    photo.add_argument("--lineart-provider", choices=lineart_provider_choices, default="auto")
+    photo.add_argument(
+        "--lineart-output", type=Path, help="Optional extracted line-art PNG path."
+    )
+    photo.add_argument(
+        "--svg-output",
+        type=Path,
+        help="Optional SVG output via vtracer when installed; SVG will be rendered if created.",
+    )
+    photo.add_argument(
+        "--lineart-provider", choices=lineart_provider_choices, default="auto"
+    )
     photo.add_argument("--duration", type=float, default=8.0)
     photo.add_argument("--fps", type=int, default=60)
-    photo.add_argument("--width", type=int, help="Output width. If omitted, render-photo uses the extracted line-art image width.")
-    photo.add_argument("--height", type=int, help="Output height. If omitted, render-photo uses the extracted line-art image height.")
+    photo.add_argument(
+        "--width",
+        type=int,
+        help="Output width. If omitted, render-photo uses the extracted line-art image width.",
+    )
+    photo.add_argument(
+        "--height",
+        type=int,
+        help="Output height. If omitted, render-photo uses the extracted line-art image height.",
+    )
     photo.add_argument("--tail-color", type=float, default=2.0)
-    photo.add_argument("--source-fit", choices=["exact", "blur-fill", "contain", "cover"], default="exact")
-    photo.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade", "left-to-right-gradient"], default="contour-wipe")
+    photo.add_argument(
+        "--source-fit",
+        choices=["exact", "blur-fill", "contain", "cover"],
+        default="exact",
+    )
+    photo.add_argument(
+        "--color-fill",
+        choices=[
+            "contour-wipe",
+            "brush-scan",
+            "top-down-blocks",
+            "fade",
+            "left-to-right-gradient",
+        ],
+        default="contour-wipe",
+    )
     photo.add_argument("--color-blocks", type=int, default=18)
-    photo.add_argument("--line-reveal", choices=["stroke", "detail-wipe"], default="stroke", help="Trace strokes or show a simple sketch immediately and add detail from left to right.")
-    photo.add_argument("--base-line-opacity", type=float, default=0.76, help="Initial contour and black-hair opacity used by detail-wipe (0.0-1.0).")
+    photo.add_argument(
+        "--line-reveal",
+        choices=["stroke", "detail-wipe"],
+        default="stroke",
+        help="Trace strokes or show a simple sketch immediately and add detail from left to right.",
+    )
+    photo.add_argument(
+        "--base-line-opacity",
+        type=float,
+        default=0.76,
+        help="Initial contour and black-hair opacity used by detail-wipe (0.0-1.0).",
+    )
     photo.add_argument("--no-lineart-snap", action="store_true")
-    photo.add_argument("--lineart-snap-threshold", type=int, default=DEFAULT_LINE_ART_SNAP_THRESHOLD)
-    photo.add_argument("--line-thickness", type=int, default=0, help="Rendered stroke width. Use 0 to adapt to the source line art, or a positive value to override it.")
-    photo.add_argument("--stroke-detail", choices=["balanced", "rich", "max"], default="rich")
+    photo.add_argument(
+        "--lineart-snap-threshold", type=int, default=DEFAULT_LINE_ART_SNAP_THRESHOLD
+    )
+    photo.add_argument(
+        "--line-thickness",
+        type=int,
+        default=0,
+        help="Rendered stroke width. Use 0 to adapt to the source line art, or a positive value to override it.",
+    )
+    photo.add_argument(
+        "--stroke-detail", choices=["balanced", "rich", "max"], default="rich"
+    )
+    photo.add_argument(
+        "--block-fill-style",
+        choices=["crayon", "clean", "soft-wash", "dry-brush"],
+        default="crayon",
+    )
     _add_draw_text_arguments(photo)
     _add_block_animation_arguments(photo)
     photo.add_argument("--hand", default="asian")
     photo.add_argument("--hand-scale", type=float, default=1.0)
     photo.set_defaults(command="render-photo")
 
-    render = sub.add_parser("render-image", help="Render one PNG/SVG image into a hand-drawn MP4.")
+    render = sub.add_parser(
+        "render-image", help="Render one PNG/SVG image into a hand-drawn MP4."
+    )
     render.add_argument("image", type=Path)
     render.add_argument("-o", "--output", type=Path, required=True)
     render.add_argument("--duration", type=float, default=8.0)
     render.add_argument("--fps", type=int, default=60)
     render.add_argument("--width", type=int, default=1920)
     render.add_argument("--height", type=int, default=1080)
-    render.add_argument("--size-from-image", action="store_true", help="Use the raster line-art image size as the render canvas, adjusted to even H.264 dimensions.")
+    render.add_argument(
+        "--size-from-image",
+        action="store_true",
+        help="Use the raster line-art image size as the render canvas, adjusted to even H.264 dimensions.",
+    )
     render.add_argument("--tail-color", type=float, default=2.0)
-    render.add_argument("--mode", choices=["smooth", "grid"], default="smooth", help="Compatibility option. Smooth is the maintained renderer.")
-    render.add_argument("--source-image", type=Path, help="Optional original/color image used for the final color fade while drawing from the line-art image.")
-    render.add_argument("--source-fit", choices=["exact", "blur-fill", "contain", "cover"], default="blur-fill", help="How to fit --source-image for the final color fill.")
-    render.add_argument("--color-fill", choices=["contour-wipe", "brush-scan", "top-down-blocks", "fade", "left-to-right-gradient"], default="contour-wipe", help="Final color fill style.")
-    render.add_argument("--color-blocks", type=int, default=18, help="Number of horizontal blocks used by top-down color fill.")
-    render.add_argument("--line-reveal", choices=["stroke", "detail-wipe"], default="stroke", help="Trace strokes or show a simple sketch immediately and add detail from left to right.")
-    render.add_argument("--base-line-opacity", type=float, default=0.76, help="Initial contour and black-hair opacity used by detail-wipe (0.0-1.0).")
-    render.add_argument("--no-lineart-snap", action="store_true", help="Disable snapping to the original complete line-art image before color fill.")
-    render.add_argument("--lineart-snap-threshold", type=int, default=DEFAULT_LINE_ART_SNAP_THRESHOLD, help="Threshold used by line-art snap. Lower avoids thickening/noise from gray pixels.")
-    render.add_argument("--line-thickness", type=int, default=0, help="Rendered stroke width. Use 0 to adapt to the source line art, or a positive value to override it.")
-    render.add_argument("--stroke-detail", choices=["balanced", "rich", "max"], default="rich", help="Raster stroke extraction detail. Rich keeps short semantic details; max keeps tiny logo/facial strokes.")
+    render.add_argument(
+        "--mode",
+        choices=["smooth", "grid"],
+        default="smooth",
+        help="Compatibility option. Smooth is the maintained renderer.",
+    )
+    render.add_argument(
+        "--source-image",
+        type=Path,
+        help="Optional original/color image used for the final color fade while drawing from the line-art image.",
+    )
+    render.add_argument(
+        "--source-fit",
+        choices=["exact", "blur-fill", "contain", "cover"],
+        default="blur-fill",
+        help="How to fit --source-image for the final color fill.",
+    )
+    render.add_argument(
+        "--color-fill",
+        choices=[
+            "contour-wipe",
+            "brush-scan",
+            "top-down-blocks",
+            "fade",
+            "left-to-right-gradient",
+        ],
+        default="contour-wipe",
+        help="Final color fill style.",
+    )
+    render.add_argument(
+        "--color-blocks",
+        type=int,
+        default=18,
+        help="Number of horizontal blocks used by top-down color fill.",
+    )
+    render.add_argument(
+        "--line-reveal",
+        choices=["stroke", "detail-wipe"],
+        default="stroke",
+        help="Trace strokes or show a simple sketch immediately and add detail from left to right.",
+    )
+    render.add_argument(
+        "--base-line-opacity",
+        type=float,
+        default=0.76,
+        help="Initial contour and black-hair opacity used by detail-wipe (0.0-1.0).",
+    )
+    render.add_argument(
+        "--no-lineart-snap",
+        action="store_true",
+        help="Disable snapping to the original complete line-art image before color fill.",
+    )
+    render.add_argument(
+        "--lineart-snap-threshold",
+        type=int,
+        default=DEFAULT_LINE_ART_SNAP_THRESHOLD,
+        help="Threshold used by line-art snap. Lower avoids thickening/noise from gray pixels.",
+    )
+    render.add_argument(
+        "--line-thickness",
+        type=int,
+        default=0,
+        help="Rendered stroke width. Use 0 to adapt to the source line art, or a positive value to override it.",
+    )
+    render.add_argument(
+        "--stroke-detail",
+        choices=["balanced", "rich", "max"],
+        default="rich",
+        help="Raster stroke extraction detail. Rich keeps short semantic details; max keeps tiny logo/facial strokes.",
+    )
+    render.add_argument(
+        "--block-fill-style",
+        choices=["crayon", "clean", "soft-wash", "dry-brush"],
+        default="crayon",
+    )
     _add_draw_text_arguments(render)
     _add_block_animation_arguments(render)
-    render.add_argument("--hand", default="asian", help="Hand cursor: asian (default), black, children, white, procedural, none, or a custom PNG/WebP path.")
+    render.add_argument(
+        "--hand",
+        default="asian",
+        help="Hand cursor: asian (default), black, children, white, procedural, none, or a custom PNG/WebP path.",
+    )
     render.add_argument("--hand-scale", type=float, default=1.0)
     render.set_defaults(command="render-image")
 
@@ -399,10 +757,23 @@ def _build_parser() -> argparse.ArgumentParser:
         default=settings.tts_provider,
         help="Narration provider. Use none to render a completely silent video.",
     )
-    run.add_argument("--voice", help="Provider voice ID. Defaults to the selected provider's recommended voice.")
-    run.add_argument("--image-model", default=settings.image_model, help="OpenAI storyboard model; defaults to gpt-image-2.")
-    run.add_argument("--image-quality", choices=["low", "medium", "high", "auto"], default=settings.image_quality)
-    run.add_argument("--lineart-provider", choices=lineart_provider_choices, default="auto")
+    run.add_argument(
+        "--voice",
+        help="Provider voice ID. Defaults to the selected provider's recommended voice.",
+    )
+    run.add_argument(
+        "--image-model",
+        default=settings.image_model,
+        help="OpenAI storyboard model; defaults to gpt-image-2.",
+    )
+    run.add_argument(
+        "--image-quality",
+        choices=["low", "medium", "high", "auto"],
+        default=settings.image_quality,
+    )
+    run.add_argument(
+        "--lineart-provider", choices=lineart_provider_choices, default="auto"
+    )
     run.add_argument(
         "--scene-assets",
         choices=["auto", "color-to-lineart", "direct-lineart"],
@@ -427,21 +798,48 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["classic", "block-speedpaint"],
         default="block-speedpaint",
     )
-    run.add_argument("--max-draw-blocks", type=int, default=6, help="Maximum automatically inferred scene blocks.")
+    _add_visual_style_arguments(run)
+    run.add_argument(
+        "--max-draw-blocks",
+        type=int,
+        default=None,
+        help="Override the style's maximum inferred scene blocks.",
+    )
     run.add_argument(
         "--draw-blocks",
         type=int,
-        default=4,
-        help="Prefer at most this many natural story blocks; connected objects are never split. Use 0 for automatic grouping.",
+        default=None,
+        help="Override the style's preferred natural block count. Use 0 for automatic grouping.",
     )
     run.add_argument(
         "--block-overlap",
         type=float,
-        default=0.16,
-        help="Timing overlap between adjacent drawing blocks (0-0.65).",
+        default=None,
+        help="Override the style's block timing overlap (0-0.65).",
     )
-    run.add_argument("--block-order", choices=["reading", "source"], default="reading")
-    run.add_argument("--block-sequence", type=_parse_block_sequence, help="Explicit inferred block ids, such as 1,0.")
+    run.add_argument("--block-order", choices=["reading", "source"], default=None)
+    run.add_argument(
+        "--block-sequence",
+        type=_parse_block_sequence,
+        help="Explicit inferred block ids, such as 1,0.",
+    )
+    run.add_argument(
+        "--block-fill-style",
+        choices=["crayon", "clean", "soft-wash", "dry-brush"],
+        default=None,
+        help="Override the selected style's block color texture.",
+    )
+    run.add_argument(
+        "--stroke-detail", choices=["balanced", "rich", "max"], default=None
+    )
+    run.add_argument("--line-thickness", type=int, default=None)
+    run.add_argument(
+        "--line-art-snap",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override whether the style snaps to the complete source line art.",
+    )
+    run.add_argument("--line-art-snap-threshold", type=int, default=None)
     caption_group = run.add_mutually_exclusive_group()
     caption_group.add_argument(
         "--captions",
@@ -484,7 +882,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--resume", action="store_true")
     run.add_argument("--mock", action="store_true")
-    run.add_argument("--hand", default="asian", help="Hand cursor: asian (default), black, children, white, procedural, none, or a custom PNG/WebP path.")
+    run.add_argument(
+        "--hand",
+        default="asian",
+        help="Hand cursor: asian (default), black, children, white, procedural, none, or a custom PNG/WebP path.",
+    )
     run.add_argument("--hand-scale", type=float, default=1.0)
     run.set_defaults(command="run", captions=False, burn_subtitles=False)
     return parser
@@ -508,7 +910,10 @@ def _doctor() -> int:
         "OPENAI_API_KEY": bool(runtime_settings.openai_api_key),
         "doubao-tts-auth": bool(
             runtime_settings.doubao_tts_api_key
-            or (runtime_settings.doubao_tts_app_id and runtime_settings.doubao_tts_access_key)
+            or (
+                runtime_settings.doubao_tts_app_id
+                and runtime_settings.doubao_tts_access_key
+            )
         ),
     }
 
@@ -538,7 +943,9 @@ def _even_dimension(value: float) -> int:
     return rounded - rounded % 2
 
 
-def _resolve_raster_resolution(image_path: Path, width: int | None, height: int | None) -> tuple[tuple[int, int], bool]:
+def _resolve_raster_resolution(
+    image_path: Path, width: int | None, height: int | None
+) -> tuple[tuple[int, int], bool]:
     """Resolve a raster output size for render-photo.
 
     Returns the H.264-safe even resolution and whether it came directly from
@@ -570,7 +977,9 @@ def _scene_payload(scene) -> dict[str, object]:
     return json.loads(scene.json())
 
 
-def _analyze_image(image: Path, resolution: tuple[int, int], stroke_detail: str = "rich") -> dict[str, object]:
+def _analyze_image(
+    image: Path, resolution: tuple[int, int], stroke_detail: str = "rich"
+) -> dict[str, object]:
     if image.suffix.lower() == ".svg":
         strokes, preview = svg_to_strokes(image, resolution)
         return {

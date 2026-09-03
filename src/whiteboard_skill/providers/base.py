@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from ..config import settings
+from ..prompts import load_prompt
+
+PLANNING_IDENTITY_SCHEMA = 1
 
 
 class LLMProvider(Protocol):
@@ -15,6 +19,9 @@ class LLMProvider(Protocol):
 
     def split_scenes(self, script: str, scene_count: int) -> list[dict[str, object]]:
         """Return scene dictionaries containing narration and image_prompt."""
+
+    def planning_identity(self) -> dict[str, object]:
+        """Return stable provider settings that affect scene planning."""
 
 
 class ImageProvider(Protocol):
@@ -41,6 +48,34 @@ class ProviderBundle:
     llm: LLMProvider
     image: ImageProvider
     tts: TTSProvider
+
+
+def llm_planning_identity(provider: object) -> dict[str, object]:
+    """Return the complete cache identity for one scene-planning provider.
+
+    The packaged prompt is part of the planning algorithm even though it is not
+    owned by a concrete provider. Hashing it here keeps provider implementations
+    small while ensuring a prompt edit invalidates resumed scene plans.
+    """
+
+    identity_method = getattr(provider, "planning_identity", None)
+    provider_settings = (
+        identity_method()
+        if callable(identity_method)
+        else {"model": getattr(provider, "model", None)}
+    )
+    if not isinstance(provider_settings, dict):
+        raise TypeError("LLM planning_identity() must return an object")
+    provider_class = provider.__class__
+    template = load_prompt("scene_split.txt")
+    return {
+        "schema": PLANNING_IDENTITY_SCHEMA,
+        "provider": f"{provider_class.__module__}.{provider_class.__qualname__}",
+        "provider_settings": provider_settings,
+        "scene_split_template_sha256": hashlib.sha256(
+            template.encode("utf-8")
+        ).hexdigest(),
+    }
 
 
 @dataclass(frozen=True)
@@ -80,17 +115,21 @@ def _use_mock(mock: bool | None) -> bool:
     return selected or _truthy(os.getenv("MOCK"))
 
 
-def get_llm_provider(mock: bool | None = None) -> LLMProvider:
+def get_llm_provider(
+    mock: bool | None = None,
+    *,
+    style_guidance: str | None = None,
+) -> LLMProvider:
     """Return only the requested scene-planning provider."""
 
     if _use_mock(mock):
         from .llm_mock import MockLLMProvider
 
-        return MockLLMProvider()
+        return MockLLMProvider(style_guidance=style_guidance)
 
     from .llm_openai import OpenAILLMProvider
 
-    return OpenAILLMProvider()
+    return OpenAILLMProvider(style_guidance=style_guidance)
 
 
 def get_image_provider(
@@ -111,7 +150,9 @@ def get_image_provider(
     return OpenAIImageProvider(model=image_model, quality=image_quality)
 
 
-def get_tts_provider(mock: bool | None = None, *, name: str | None = None) -> TTSProvider:
+def get_tts_provider(
+    mock: bool | None = None, *, name: str | None = None
+) -> TTSProvider:
     """Return only the requested narration provider.
 
     Keeping this factory independent lets preplanned, pre-illustrated projects use
@@ -123,7 +164,9 @@ def get_tts_provider(mock: bool | None = None, *, name: str | None = None) -> TT
 
         return MockTTSProvider()
 
-    selected = (name or os.getenv("TTS_PROVIDER") or settings.tts_provider).strip().lower()
+    selected = (
+        (name or os.getenv("TTS_PROVIDER") or settings.tts_provider).strip().lower()
+    )
     if selected == "edge":
         from .tts_edge import EdgeTTSProvider
 

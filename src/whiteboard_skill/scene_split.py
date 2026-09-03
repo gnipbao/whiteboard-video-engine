@@ -4,13 +4,22 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from .models import STYLE_SUFFIX, Annotation, Scene, TimingCue
+from .models import Annotation, Scene, TimingCue
 from .providers import LLMProvider
+from .styles import VisualStyle, build_storyboard_prompt, resolve_builtin_style
 
 
-def split_script(script: str, provider: LLMProvider, scene_count: int = 4) -> list[Scene]:
+def split_script(
+    script: str,
+    provider: LLMProvider,
+    scene_count: int = 4,
+    *,
+    style: VisualStyle | None = None,
+    theme: str | None = None,
+) -> list[Scene]:
     """Split raw script text into validated scenes."""
 
+    resolved_style = style or resolve_builtin_style()
     raw_scenes = provider.split_scenes(script, scene_count)
     scenes: list[Scene] = []
     for idx, item in enumerate(raw_scenes[:scene_count], start=1):
@@ -18,8 +27,7 @@ def split_script(script: str, provider: LLMProvider, scene_count: int = 4) -> li
         if not narration:
             continue
         prompt = str(item.get("image_prompt") or narration).strip()
-        if STYLE_SUFFIX not in prompt:
-            prompt = f"{prompt}{STYLE_SUFFIX}"
+        prompt = build_storyboard_prompt(prompt, resolved_style, theme=theme)
         duration = item.get("duration_sec")
         annotations: list[Annotation] = []
         raw_annotations = item.get("annotations", [])
@@ -42,11 +50,24 @@ def split_script(script: str, provider: LLMProvider, scene_count: int = 4) -> li
                 id=int(item.get("id") or idx),
                 narration=narration,
                 image_prompt=prompt,
-                duration_sec=float(duration) if isinstance(duration, (int, float, str)) and str(duration).strip() else None,
+                duration_sec=float(duration)
+                if isinstance(duration, (int, float, str)) and str(duration).strip()
+                else None,
                 annotations=annotations,
                 timing_cues=timing_cues,
             )
         )
     if not scenes:
-        scenes.append(Scene(id=1, narration=script.strip() or "A simple whiteboard explanation.", image_prompt=f"simple concept diagram{STYLE_SUFFIX}", duration_sec=4.0))
+        scenes.append(
+            Scene(
+                id=1,
+                narration=script.strip() or "A simple whiteboard explanation.",
+                image_prompt=build_storyboard_prompt(
+                    "simple concept diagram",
+                    resolved_style,
+                    theme=theme,
+                ),
+                duration_sec=4.0,
+            )
+        )
     return scenes

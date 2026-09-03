@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from whiteboard_skill.models import Project, Scene, TimingCue
 from whiteboard_skill.providers.base import (
     SpeechSentenceTiming,
@@ -116,7 +118,9 @@ def test_word_timings_form_short_phrase_cues_and_keep_true_onset():
     )
     result = SpeechSynthesisResult(
         duration_sec=3.0,
-        sentences=(SpeechSentenceTiming(text, words[0].start_sec, words[-1].end_sec, words),),
+        sentences=(
+            SpeechSentenceTiming(text, words[0].start_sec, words[-1].end_sec, words),
+        ),
     )
 
     cues = _speech_timing_cues(result)
@@ -150,9 +154,47 @@ def test_legacy_audio_timing_is_migrated_as_unknown_not_authored():
         }
     )
 
-    assert project.schema_version == 2
+    assert project.schema_version == 3
+    assert project.visual_style_id == "warm-crayon-storybook"
     assert project.scenes[0].planned_duration_sec == 0.0
     assert project.scenes[0].timing_source == "unknown"
+
+
+def test_project_rejects_future_schema_version():
+    with pytest.raises(ValueError, match="newer than supported version 3"):
+        Project.model_validate(
+            {
+                "schema_version": 4,
+                "title": "future",
+                "scenes": [],
+            }
+        )
+
+
+def test_project_rejects_unknown_persisted_fields():
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        Project.model_validate(
+            {
+                "schema_version": 3,
+                "title": "unknown-field",
+                "scenes": [],
+                "future_renderer_setting": True,
+            }
+        )
+
+
+@pytest.mark.parametrize("schema_version", ["not-a-version", "3", 3.0, True, 0, -1])
+def test_project_rejects_malformed_schema_version_instead_of_migrating_it(
+    schema_version: object,
+):
+    with pytest.raises(ValueError, match="schema_version must be a positive integer"):
+        Project.model_validate(
+            {
+                "schema_version": schema_version,
+                "title": "malformed",
+                "scenes": [],
+            }
+        )
 
 
 def test_provider_timing_is_coalesced_to_persisted_scene_limit():

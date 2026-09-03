@@ -25,8 +25,15 @@ def test_run_defaults_to_gpt_image_2_color_pipeline_and_block_animation():
     assert args.scene_assets == "auto"
     assert args.lineart_provider == "auto"
     assert args.animation_preset == "block-speedpaint"
-    assert args.draw_blocks == 4
-    assert args.block_overlap == 0.16
+    assert args.max_draw_blocks is None
+    assert args.draw_blocks is None
+    assert args.block_overlap is None
+    assert args.block_order is None
+    assert args.block_fill_style is None
+    assert args.stroke_detail is None
+    assert args.line_thickness is None
+    assert args.line_art_snap is None
+    assert args.line_art_snap_threshold is None
     assert args.fps == 30
     assert args.captions is False
     assert args.burn_subtitles is False
@@ -136,13 +143,17 @@ class _PlanLineArt:
     def extract(self, source: Path, output: Path) -> Path:
         with Image.open(source) as image:
             lineart = Image.new("RGB", image.size, "white")
-        ImageDraw.Draw(lineart).line((5, 5, lineart.width - 5, lineart.height - 5), fill="black", width=2)
+        ImageDraw.Draw(lineart).line(
+            (5, 5, lineart.width - 5, lineart.height - 5), fill="black", width=2
+        )
         output.parent.mkdir(parents=True, exist_ok=True)
         lineart.save(output)
         return output
 
 
-def test_scene_plan_and_storyboards_skip_all_openai_providers(monkeypatch, tmp_path: Path):
+def test_scene_plan_and_storyboards_skip_all_openai_providers(
+    monkeypatch, tmp_path: Path
+):
     script = tmp_path / "three-monks.md"
     script.write_text("三个和尚没水喝。", encoding="utf-8")
     scene_plan = tmp_path / "scenes.json"
@@ -180,7 +191,9 @@ def test_scene_plan_and_storyboards_skip_all_openai_providers(monkeypatch, tmp_p
         output.write_bytes(b"final")
         return output
 
-    monkeypatch.setattr(pipeline, "settings", replace(settings, work_dir=tmp_path / "work"))
+    monkeypatch.setattr(
+        pipeline, "settings", replace(settings, work_dir=tmp_path / "work")
+    )
     monkeypatch.setattr(pipeline, "get_llm_provider", fail_openai_provider)
     monkeypatch.setattr(pipeline, "get_image_provider", fail_openai_provider)
     monkeypatch.setattr(pipeline, "get_tts_provider", fake_tts_provider)
@@ -259,7 +272,9 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
         output.write_bytes(b"burned")
         return output
 
-    monkeypatch.setattr(pipeline, "settings", replace(settings, work_dir=tmp_path / "work"))
+    monkeypatch.setattr(
+        pipeline, "settings", replace(settings, work_dir=tmp_path / "work")
+    )
     monkeypatch.setattr(pipeline, "get_llm_provider", fail_provider)
     monkeypatch.setattr(pipeline, "get_image_provider", fail_provider)
     monkeypatch.setattr(pipeline, "get_tts_provider", fail_provider)
@@ -277,6 +292,9 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
         storyboard_dir=storyboards,
         scene_plan_path=scene_plan,
         resolution=(96, 64),
+        visual_style="auto",
+        visual_theme="合作化解缺水",
+        line_thickness=2,
         tail_color_seconds=0.75,
         burn_subtitles=True,
         subtitle_font="Hiragino Sans GB",
@@ -287,6 +305,16 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
 
     assert project.tts_provider == "none"
     assert project.voice == ""
+    assert project.visual_style_id == "ink-wash-minimal"
+    assert project.visual_style_snapshot["id"] == "ink-wash-minimal"
+    assert project.visual_theme == "合作化解缺水"
+    assert project.block_fill_style == "dry-brush"
+    assert project.stroke_detail == "max"
+    assert project.line_thickness == 2
+    assert project.max_draw_blocks == 5
+    assert project.draw_blocks == 3
+    assert "[WHITEBOARD_VISUAL_STYLE]" in project.scenes[0].image_prompt
+    assert "合作化解缺水" in project.scenes[0].image_prompt
     assert project.scenes[0].duration_sec == 4.25
     assert project.scenes[0].audio_path is None
     assert composed_audio == []
@@ -294,6 +322,11 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
     assert [item.text for item in render_calls[0]["annotations"]] == ["没水！"]
     assert [item.text for item in render_calls[0]["timing_cues"]] == ["水缸已经见底。"]
     assert render_calls[0]["duration"] == 5.0
+    assert render_calls[0]["block_fill_style"] == "dry-brush"
+    assert render_calls[0]["stroke_detail"] == "max"
+    assert render_calls[0]["line_thickness"] == 2
+    assert render_calls[0]["max_draw_blocks"] == 5
+    assert render_calls[0]["draw_blocks"] == 3
     assert project.subtitle_path == output.with_suffix(".srt")
     assert output.read_bytes() == b"burned"
     assert burned_subtitles == [
@@ -313,6 +346,117 @@ def test_silent_pipeline_skips_tts_but_keeps_annotations(monkeypatch, tmp_path: 
         encoding="utf-8"
     )
 
+    resumed = run_pipeline(
+        script,
+        output,
+        mock=False,
+        resume=True,
+        tts_provider="none",
+        storyboard_dir=storyboards,
+        scene_plan_path=scene_plan,
+        resolution=(96, 64),
+        tail_color_seconds=0.75,
+        burn_subtitles=True,
+        subtitle_font="Hiragino Sans GB",
+        subtitle_font_size=15.0,
+        subtitle_margin_v=24,
+        subtitle_outline=1.4,
+    )
+
+    assert resumed.visual_style_id == "ink-wash-minimal"
+    assert resumed.visual_theme == "合作化解缺水"
+    assert resumed.block_fill_style == "dry-brush"
+    assert resumed.stroke_detail == "max"
+    assert resumed.line_thickness == 2
+
+
+def test_legacy_resume_pins_original_style_over_new_environment_default(
+    monkeypatch,
+    tmp_path: Path,
+):
+    script = tmp_path / "legacy.md"
+    script.write_text("旧项目继续制作。", encoding="utf-8")
+    plan = tmp_path / "scenes.json"
+    plan.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "narration": "旧项目继续制作。",
+                    "image_prompt": "One complete person beside a table",
+                    "duration_sec": 3.0,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    storyboards = tmp_path / "storyboards"
+    storyboards.mkdir()
+    Image.new("RGB", (96, 64), "white").save(storyboards / "scene_01.png")
+    project_dir = tmp_path / "work" / "legacy"
+    project_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "title": "legacy",
+                "planning_fingerprint": "legacy-planning-cache",
+                "tts_provider": "none",
+                "scenes": [
+                    {
+                        "id": 1,
+                        "narration": "旧项目继续制作。",
+                        "image_prompt": "old prompt",
+                        "duration_sec": 3.0,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_provider(*_args, **_kwargs):
+        raise AssertionError("preplanned silent resume must not initialize providers")
+
+    def fake_render(_image: Path, output: Path, **_kwargs):
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"video")
+
+    def fake_compose(_videos: list[Path], _audio: list[Path], output: Path):
+        output.write_bytes(b"final")
+        return output
+
+    monkeypatch.setattr(
+        pipeline,
+        "settings",
+        replace(
+            settings,
+            work_dir=tmp_path / "work",
+            visual_style="clean-whiteboard",
+        ),
+    )
+    monkeypatch.setattr(pipeline, "get_llm_provider", fail_provider)
+    monkeypatch.setattr(pipeline, "get_image_provider", fail_provider)
+    monkeypatch.setattr(pipeline, "get_tts_provider", fail_provider)
+    monkeypatch.setattr(pipeline, "get_lineart_provider", lambda _name: _PlanLineArt())
+    monkeypatch.setattr(pipeline, "render_image", fake_render)
+    monkeypatch.setattr(pipeline, "compose_project", fake_compose)
+
+    project = run_pipeline(
+        script,
+        tmp_path / "legacy.mp4",
+        mock=False,
+        resume=True,
+        tts_provider="none",
+        storyboard_dir=storyboards,
+        scene_plan_path=plan,
+        resolution=(96, 64),
+    )
+
+    assert project.visual_style_id == "warm-crayon-storybook"
+    assert project.visual_style_snapshot["id"] == "warm-crayon-storybook"
+
 
 def test_render_fingerprint_tracks_annotation_content(tmp_path: Path):
     lineart = tmp_path / "lineart.png"
@@ -328,11 +472,7 @@ def test_render_fingerprint_tracks_annotation_content(tmp_path: Path):
     )
 
     timed = plain.model_copy(
-        update={
-            "timing_cues": [
-                TimingCue(text="旁白", start_sec=0.0, end_sec=1.0)
-            ]
-        }
+        update={"timing_cues": [TimingCue(text="旁白", start_sec=0.0, end_sec=1.0)]}
     )
     common = {"project": project, "hand_style": "none", "hand_scale": 1.0}
 
@@ -344,6 +484,47 @@ def test_render_fingerprint_tracks_annotation_content(tmp_path: Path):
         scene=timed,
         **common,
     )
+    clean_fill = project.model_copy(update={"block_fill_style": "clean"})
+    dense_lines = project.model_copy(
+        update={"stroke_detail": "max", "line_thickness": 2}
+    )
+    assert _render_fingerprint(scene=plain, **common) != _render_fingerprint(
+        scene=plain,
+        project=clean_fill,
+        hand_style="none",
+        hand_scale=1.0,
+    )
+    assert _render_fingerprint(scene=plain, **common) != _render_fingerprint(
+        scene=plain,
+        project=dense_lines,
+        hand_style="none",
+        hand_scale=1.0,
+    )
+
+
+def test_render_fingerprint_tracks_custom_hand_file_content(tmp_path: Path):
+    lineart = tmp_path / "lineart.png"
+    hand = tmp_path / "custom-hand.png"
+    Image.new("RGB", (32, 24), "white").save(lineart)
+    Image.new("RGBA", (12, 12), "red").save(hand)
+    project = Project(title="story", width=32, height=24)
+    scene = Scene(id=1, narration="旁白", image_prompt="prompt", lineart_path=lineart)
+
+    first = _render_fingerprint(
+        scene=scene,
+        project=project,
+        hand_style=str(hand),
+        hand_scale=1.0,
+    )
+    Image.new("RGBA", (12, 12), "blue").save(hand)
+    second = _render_fingerprint(
+        scene=scene,
+        project=project,
+        hand_style=str(hand),
+        hand_scale=1.0,
+    )
+
+    assert first != second
 
 
 def test_srt_uses_estimated_phrases_then_exact_cues_with_clip_offsets(tmp_path: Path):
@@ -360,9 +541,7 @@ def test_srt_uses_estimated_phrases_then_exact_cues_with_clip_offsets(tmp_path: 
             narration="精确时间。",
             image_prompt="second",
             duration_sec=2.0,
-            timing_cues=[
-                TimingCue(text="精确时间。", start_sec=0.25, end_sec=0.75)
-            ],
+            timing_cues=[TimingCue(text="精确时间。", start_sec=0.25, end_sec=0.75)],
         ),
     ]
     output = tmp_path / "story.srt"
@@ -382,9 +561,7 @@ def test_srt_exact_cue_stops_at_audio_end_not_visual_tail(tmp_path: Path):
             image_prompt="first",
             duration_sec=4.0,
             audio_duration_sec=2.0,
-            timing_cues=[
-                TimingCue(text="只到声音结束", start_sec=1.5, end_sec=4.5)
-            ],
+            timing_cues=[TimingCue(text="只到声音结束", start_sec=1.5, end_sec=4.5)],
             timing_source="provider",
         ),
         Scene(
@@ -420,3 +597,158 @@ def test_real_pipeline_rejects_color_provider_as_direct_lineart(tmp_path: Path):
             mock=False,
             scene_asset_mode="direct-lineart",
         )
+
+
+@pytest.mark.parametrize(
+    ("scene_metadata", "expected_issue"),
+    [
+        (
+            {"annotations": [{"text": "缺水", "x": 0.7, "y": 0.2}]},
+            "positioned annotations",
+        ),
+        (
+            {
+                "timing_cues": [
+                    {
+                        "text": "先画水缸",
+                        "start_sec": 0.0,
+                        "end_sec": 1.0,
+                        "draw_to": 1.0,
+                    }
+                ]
+            },
+            "authored drawing timing_cues",
+        ),
+    ],
+)
+def test_classic_rejects_unsupported_authored_metadata_before_assets(
+    monkeypatch,
+    tmp_path: Path,
+    scene_metadata: dict[str, object],
+    expected_issue: str,
+):
+    script = tmp_path / "classic.md"
+    script.write_text("一个和尚挑水。", encoding="utf-8")
+    scene_plan = tmp_path / "classic-scenes.json"
+    scene_plan.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "narration": "一个和尚挑水。",
+                    "image_prompt": "One monk carrying water",
+                    "duration_sec": 3.0,
+                    **scene_metadata,
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        pipeline, "settings", replace(settings, work_dir=tmp_path / "work")
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "use_precomputed_source_images",
+        lambda *_args, **_kwargs: pytest.fail("asset processing must not start"),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        run_pipeline(
+            script,
+            tmp_path / "classic.mp4",
+            mock=True,
+            tts_provider="none",
+            storyboard_dir=tmp_path / "unused-storyboards",
+            scene_plan_path=scene_plan,
+            animation_preset="classic",
+        )
+
+    message = str(exc_info.value)
+    assert expected_issue in message
+    assert "scene(s) 1" in message
+    assert "--animation-preset block-speedpaint" in message
+    assert "remove annotations/timing_cues" in message
+
+
+def test_classic_keeps_provider_timing_for_subtitles_but_not_renderer(
+    monkeypatch,
+    tmp_path: Path,
+):
+    script = tmp_path / "classic-provider-timing.md"
+    script.write_text("一个和尚挑水。", encoding="utf-8")
+    scene_plan = tmp_path / "classic-provider-timing-scenes.json"
+    scene_plan.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "narration": "一个和尚挑水。",
+                    "image_prompt": "One monk carrying water",
+                    "duration_sec": 3.0,
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    storyboards = tmp_path / "storyboards"
+    storyboards.mkdir()
+    Image.new("RGB", (96, 64), "white").save(storyboards / "scene_01.png")
+    render_calls: list[dict[str, object]] = []
+
+    def fake_tts_provider(*_args, **_kwargs):
+        return _PlanTTS()
+
+    def fake_synthesize(scenes, _provider, audio_dir, _voice, resume=False):
+        assert resume is False
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        for scene in scenes:
+            audio_path = audio_dir / f"scene_{scene.id:02d}.mp3"
+            audio_path.write_bytes(b"audio")
+            scene.audio_path = audio_path
+            scene.audio_duration_sec = 2.0
+            scene.duration_sec = 2.0
+            scene.audio_fingerprint = "provider-audio"
+            scene.timing_cues = [
+                TimingCue(text="一个和尚挑水。", start_sec=0.0, end_sec=2.0)
+            ]
+            scene.timing_source = "provider"
+        return scenes
+
+    def fake_render(_image: Path, output: Path, **kwargs):
+        render_calls.append(kwargs)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"video")
+
+    def fake_compose(_videos: list[Path], _audio: list[Path], output: Path):
+        output.write_bytes(b"final")
+        return output
+
+    monkeypatch.setattr(
+        pipeline, "settings", replace(settings, work_dir=tmp_path / "work")
+    )
+    monkeypatch.setattr(pipeline, "get_tts_provider", fake_tts_provider)
+    monkeypatch.setattr(pipeline, "synthesize_scene_audio", fake_synthesize)
+    monkeypatch.setattr(pipeline, "get_lineart_provider", lambda _name: _PlanLineArt())
+    monkeypatch.setattr(pipeline, "render_image", fake_render)
+    monkeypatch.setattr(pipeline, "compose_project", fake_compose)
+
+    project = run_pipeline(
+        script,
+        tmp_path / "classic-provider-timing.mp4",
+        mock=False,
+        tts_provider="edge",
+        storyboard_dir=storyboards,
+        scene_plan_path=scene_plan,
+        animation_preset="classic",
+        resolution=(96, 64),
+    )
+
+    assert project.scenes[0].timing_source == "provider"
+    assert [cue.text for cue in project.scenes[0].timing_cues] == ["一个和尚挑水。"]
+    assert render_calls[0]["annotations"] == []
+    assert render_calls[0]["timing_cues"] == []
+    assert "一个和尚挑水。" in project.subtitle_path.read_text(encoding="utf-8")

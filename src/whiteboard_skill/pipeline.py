@@ -11,7 +11,7 @@ from typing import Any
 from .compose import burn_subtitles as burn_subtitles_into_video
 from .compose import compose_project
 from .config import settings
-from .fingerprints import file_sha256, provider_identity, stable_fingerprint
+from .fingerprints import file_sha256, stable_fingerprint
 from .image_gen import (
     extract_scene_lineart,
     generate_scene_images,
@@ -19,10 +19,22 @@ from .image_gen import (
 )
 from .logging_setup import logger
 from .models import Project, Scene, TimingCue
-from .providers import get_image_provider, get_llm_provider, get_tts_provider
+from .providers import (
+    get_image_provider,
+    get_llm_provider,
+    get_tts_provider,
+    llm_planning_identity,
+)
 from .providers.lineart import get_lineart_provider
 from .scene_plan import load_scene_plan, scene_plan_payload
 from .scene_split import split_script
+from .styles import (
+    VisualStyle,
+    build_storyboard_prompt,
+    resolve_builtin_style,
+    resolve_style,
+    style_planning_payload,
+)
 from .tts import synthesize_scene_audio
 from .whiteboard import render_image
 
@@ -42,16 +54,25 @@ def run_pipeline(
     tts_provider: str | None = None,
     image_model: str | None = None,
     image_quality: str | None = None,
+    visual_style: str | None = None,
+    visual_theme: str | None = None,
+    custom_style: str | None = None,
+    custom_style_file: Path | None = None,
     lineart_provider: str = "auto",
     scene_asset_mode: str = "auto",
     storyboard_dir: Path | None = None,
     scene_plan_path: Path | None = None,
     animation_preset: str = "block-speedpaint",
-    max_draw_blocks: int = 6,
-    draw_blocks: int | None = 4,
-    block_overlap: float = 0.16,
-    block_order: str = "reading",
+    max_draw_blocks: int | None = None,
+    draw_blocks: int | None = None,
+    block_overlap: float | None = None,
+    block_order: str | None = None,
     block_sequence: list[int] | None = None,
+    block_fill_style: str | None = None,
+    stroke_detail: str | None = None,
+    line_thickness: int | None = None,
+    line_art_snap: bool | None = None,
+    line_art_snap_threshold: int | None = None,
     captions: bool = False,
     burn_subtitles: bool = False,
     subtitle_font: str = "sans-serif",
@@ -69,17 +90,11 @@ def run_pipeline(
             "suffix for the subtitle sidecar"
         )
     if scene_asset_mode not in {"auto", "color-to-lineart", "direct-lineart"}:
-        raise ValueError("scene_asset_mode must be auto, color-to-lineart, or direct-lineart")
+        raise ValueError(
+            "scene_asset_mode must be auto, color-to-lineart, or direct-lineart"
+        )
     if animation_preset not in {"classic", "block-speedpaint"}:
         raise ValueError("animation_preset must be classic or block-speedpaint")
-    if max_draw_blocks < 1:
-        raise ValueError("max_draw_blocks must be at least 1")
-    if draw_blocks is not None and draw_blocks < 0:
-        raise ValueError("draw_blocks must be 0 (automatic) or a positive integer")
-    if not 0 <= block_overlap <= 0.65:
-        raise ValueError("block_overlap must be between 0 and 0.65")
-    if block_order not in {"reading", "source"}:
-        raise ValueError("block_order must be reading or source")
     if not subtitle_font.strip():
         raise ValueError("subtitle_font cannot be empty")
     if any(character in subtitle_font for character in ("\r", "\n", ",", "\0")):
@@ -96,8 +111,144 @@ def run_pipeline(
         logger.warning(
             "--captions is deprecated and has no effect; use --burn-subtitles to burn the sidecar SRT"
         )
-    resolved_draw_blocks = draw_blocks or None
-    use_mock = bool(settings.mock if mock is None else mock) or _truthy(os.getenv("MOCK"))
+
+    project_id = _slug(script_path.stem)
+    work_dir = settings.work_dir / project_id
+    work_dir.mkdir(parents=True, exist_ok=True)
+    project_path = work_dir / "project.json"
+    script = script_path.read_text(encoding="utf-8")
+    resumed_project = (
+        _load_project(project_path) if resume and project_path.exists() else None
+    )
+    explicit_style = any(
+        value is not None for value in (visual_style, custom_style, custom_style_file)
+    )
+    reuse_resumed_selection = resumed_project is not None and not explicit_style
+    if reuse_resumed_selection and resumed_project is not None:
+        # Schema-v3 projects carry the immutable recipe. Migrated v1/v2 projects
+        # have only the pinned legacy id, which must still win over a later
+        # WHITEBOARD_STYLE environment change.
+        if resumed_project.visual_style_snapshot:
+            resolved_visual_style = VisualStyle.model_validate(
+                resumed_project.visual_style_snapshot
+            )
+        else:
+            resolved_visual_style = resolve_builtin_style(
+                resumed_project.visual_style_id
+            )
+    else:
+        selector = visual_style
+        if selector is None and custom_style is None and custom_style_file is None:
+            selector = settings.visual_style
+        resolved_visual_style = resolve_style(
+            selector,
+            script=script,
+            custom_style=custom_style,
+            custom_style_file=custom_style_file,
+        )
+    if visual_theme is not None:
+        resolved_visual_theme = " ".join(visual_theme.split())
+    elif reuse_resumed_selection and resumed_project is not None:
+        resolved_visual_theme = resumed_project.visual_theme
+    else:
+        resolved_visual_theme = ""
+    if len(resolved_visual_theme) > 1_000:
+        raise ValueError("visual_theme must be at most 1000 characters")
+    render_recipe = resolved_visual_style.render
+    prior_render = resumed_project if reuse_resumed_selection else None
+    resolved_max_draw_blocks = (
+        max_draw_blocks
+        if max_draw_blocks is not None
+        else prior_render.max_draw_blocks
+        if prior_render is not None
+        else render_recipe.max_draw_blocks
+    )
+    selected_draw_blocks = (
+        draw_blocks
+        if draw_blocks is not None
+        else prior_render.draw_blocks
+        if prior_render is not None
+        else render_recipe.draw_blocks
+    )
+    resolved_draw_blocks = selected_draw_blocks or None
+    resolved_block_overlap = (
+        block_overlap
+        if block_overlap is not None
+        else prior_render.block_overlap
+        if prior_render is not None
+        else render_recipe.block_overlap
+    )
+    resolved_block_order = (
+        block_order
+        if block_order is not None
+        else prior_render.block_order
+        if prior_render is not None
+        else render_recipe.block_order
+    )
+    resolved_block_fill_style = (
+        block_fill_style
+        if block_fill_style is not None
+        else prior_render.block_fill_style
+        if prior_render is not None
+        else render_recipe.block_fill_style
+    )
+    resolved_stroke_detail = (
+        stroke_detail
+        if stroke_detail is not None
+        else prior_render.stroke_detail
+        if prior_render is not None
+        else render_recipe.stroke_detail
+    )
+    resolved_line_thickness = (
+        line_thickness
+        if line_thickness is not None
+        else prior_render.line_thickness
+        if prior_render is not None
+        else render_recipe.line_thickness
+    )
+    resolved_line_art_snap = (
+        line_art_snap
+        if line_art_snap is not None
+        else prior_render.line_art_snap
+        if prior_render is not None
+        else render_recipe.line_art_snap
+    )
+    resolved_line_art_snap_threshold = (
+        line_art_snap_threshold
+        if line_art_snap_threshold is not None
+        else prior_render.line_art_snap_threshold
+        if prior_render is not None
+        else render_recipe.line_art_snap_threshold
+    )
+    resolved_block_sequence = (
+        block_sequence
+        if block_sequence is not None
+        else prior_render.block_sequence
+        if prior_render is not None
+        else None
+    )
+    if resolved_max_draw_blocks < 1:
+        raise ValueError("max_draw_blocks must be at least 1")
+    if draw_blocks is not None and draw_blocks < 0:
+        raise ValueError("draw_blocks must be 0 (automatic) or a positive integer")
+    if not 0 <= resolved_block_overlap <= 0.65:
+        raise ValueError("block_overlap must be between 0 and 0.65")
+    if resolved_block_order not in {"reading", "source"}:
+        raise ValueError("block_order must be reading or source")
+    if resolved_block_fill_style not in {"crayon", "clean", "soft-wash", "dry-brush"}:
+        raise ValueError(
+            "block_fill_style must be crayon, clean, soft-wash, or dry-brush"
+        )
+    if resolved_stroke_detail not in {"balanced", "rich", "max"}:
+        raise ValueError("stroke_detail must be balanced, rich, or max")
+    if not 0 <= resolved_line_thickness <= 16:
+        raise ValueError("line_thickness must be between 0 and 16")
+    if not 1 <= resolved_line_art_snap_threshold <= 254:
+        raise ValueError("line_art_snap_threshold must be between 1 and 254")
+
+    use_mock = bool(settings.mock if mock is None else mock) or _truthy(
+        os.getenv("MOCK")
+    )
     resolved_asset_mode = scene_asset_mode
     if storyboard_dir is not None:
         resolved_asset_mode = "color-to-lineart"
@@ -111,7 +262,15 @@ def run_pipeline(
     selected_tts_provider = (tts_provider or settings.tts_provider).strip().lower()
     selected_image_model = image_model or settings.image_model
     selected_image_quality = image_quality or settings.image_quality
-    explicit_scenes = load_scene_plan(scene_plan_path) if scene_plan_path is not None else None
+    explicit_scenes = (
+        load_scene_plan(scene_plan_path) if scene_plan_path is not None else None
+    )
+    if explicit_scenes is not None:
+        _apply_visual_style(
+            explicit_scenes,
+            resolved_visual_style,
+            theme=resolved_visual_theme,
+        )
     narration_provider = (
         None
         if selected_tts_provider == "none"
@@ -127,7 +286,10 @@ def run_pipeline(
             )
         planning_provider = None
     else:
-        planning_provider = get_llm_provider(use_mock)
+        planning_provider = get_llm_provider(
+            use_mock,
+            style_guidance=resolved_visual_style.planner_guidance,
+        )
         image_provider = get_image_provider(
             use_mock,
             image_model=selected_image_model,
@@ -139,31 +301,31 @@ def run_pipeline(
         else ""
     )
 
-    project_id = _slug(script_path.stem)
-    work_dir = settings.work_dir / project_id
-    work_dir.mkdir(parents=True, exist_ok=True)
-    project_path = work_dir / "project.json"
-    script = script_path.read_text(encoding="utf-8")
     if explicit_scenes is not None:
         planning_fingerprint = stable_fingerprint(
             {
                 "mode": "scene-plan",
                 "scenes": scene_plan_payload(explicit_scenes),
+                "style": style_planning_payload(resolved_visual_style),
+                "theme": resolved_visual_theme,
             }
         )
     else:
         assert planning_provider is not None
         planning_fingerprint = stable_fingerprint(
             {
-                "llm_model": getattr(planning_provider, "model", None),
-                "llm_provider": provider_identity(planning_provider),
+                "planning_provider": llm_planning_identity(planning_provider),
                 "scene_count": scene_count,
                 "script": script,
+                "style": style_planning_payload(resolved_visual_style),
+                "theme": resolved_visual_theme,
             }
         )
 
-    resumed_project = _load_project(project_path) if resume and project_path.exists() else None
-    if resumed_project is not None and resumed_project.planning_fingerprint == planning_fingerprint:
+    if (
+        resumed_project is not None
+        and resumed_project.planning_fingerprint == planning_fingerprint
+    ):
         project = resumed_project
         if explicit_scenes is not None:
             _restore_explicit_scene_plan(project.scenes, explicit_scenes)
@@ -173,7 +335,13 @@ def run_pipeline(
             scenes = explicit_scenes
         else:
             assert planning_provider is not None
-            scenes = split_script(script, planning_provider, scene_count)
+            scenes = split_script(
+                script,
+                planning_provider,
+                scene_count,
+                style=resolved_visual_style,
+                theme=resolved_visual_theme,
+            )
         project = Project(
             title=script_path.stem,
             planning_fingerprint=planning_fingerprint,
@@ -181,14 +349,22 @@ def run_pipeline(
             tts_provider=selected_tts_provider,
             image_model=selected_image_model,
             image_quality=selected_image_quality,
+            visual_style_id=resolved_visual_style.id,
+            visual_style_snapshot=resolved_visual_style.model_dump(mode="json"),
+            visual_theme=resolved_visual_theme,
             scene_asset_mode=resolved_asset_mode,
             lineart_provider=lineart_provider,
             animation_preset=animation_preset,
-            max_draw_blocks=max_draw_blocks,
+            max_draw_blocks=resolved_max_draw_blocks,
             draw_blocks=resolved_draw_blocks,
-            block_overlap=block_overlap,
-            block_order=block_order,
-            block_sequence=block_sequence,
+            block_overlap=resolved_block_overlap,
+            block_order=resolved_block_order,
+            block_sequence=resolved_block_sequence,
+            block_fill_style=resolved_block_fill_style,
+            stroke_detail=resolved_stroke_detail,
+            line_thickness=resolved_line_thickness,
+            line_art_snap=resolved_line_art_snap,
+            line_art_snap_threshold=resolved_line_art_snap_threshold,
             fps=fps,
             width=resolution[0],
             height=resolution[1],
@@ -208,20 +384,30 @@ def run_pipeline(
     project.tts_provider = selected_tts_provider
     project.image_model = selected_image_model
     project.image_quality = selected_image_quality
+    project.visual_style_id = resolved_visual_style.id
+    project.visual_style_snapshot = resolved_visual_style.model_dump(mode="json")
+    project.visual_theme = resolved_visual_theme
     project.scene_asset_mode = resolved_asset_mode
     project.lineart_provider = lineart_provider
     project.animation_preset = animation_preset
-    project.max_draw_blocks = max_draw_blocks
+    project.max_draw_blocks = resolved_max_draw_blocks
     project.draw_blocks = resolved_draw_blocks
-    project.block_overlap = block_overlap
-    project.block_order = block_order
-    project.block_sequence = block_sequence
+    project.block_overlap = resolved_block_overlap
+    project.block_order = resolved_block_order
+    project.block_sequence = resolved_block_sequence
+    project.block_fill_style = resolved_block_fill_style
+    project.stroke_detail = resolved_stroke_detail
+    project.line_thickness = resolved_line_thickness
+    project.line_art_snap = resolved_line_art_snap
+    project.line_art_snap_threshold = resolved_line_art_snap_threshold
     project.tail_color_seconds = tail_color_seconds
     project.burn_subtitles = burn_subtitles
     project.subtitle_font = subtitle_font
     project.subtitle_font_size = subtitle_font_size
     project.subtitle_margin_v = subtitle_margin_v
     project.subtitle_outline = subtitle_outline
+
+    _validate_animation_scene_metadata(project.scenes, project.animation_preset)
 
     if resolved_asset_mode == "color-to-lineart":
         if storyboard_dir is not None:
@@ -236,7 +422,9 @@ def run_pipeline(
         else:
             logger.info("generating color storyboards with {}", selected_image_model)
             if image_provider is None:
-                raise RuntimeError("No image provider is available for storyboard generation")
+                raise RuntimeError(
+                    "No image provider is available for storyboard generation"
+                )
             project.scenes = generate_scene_images(
                 project.scenes,
                 image_provider,
@@ -316,7 +504,9 @@ def run_pipeline(
             render_image(
                 scene.lineart_path or scene.image_path,
                 scene_video,
-                duration=max(2.0, float(scene.duration_sec or 4.0) + project.tail_color_seconds),
+                duration=max(
+                    2.0, float(scene.duration_sec or 4.0) + project.tail_color_seconds
+                ),
                 fps=project.fps,
                 resolution=project.resolution,
                 tail_color_sec=project.tail_color_seconds,
@@ -327,13 +517,26 @@ def run_pipeline(
                 line_reveal_mode="detail-wipe",
                 color_fill_mode="left-to-right-gradient",
                 animation_preset=animation_preset,
-                annotations=scene.annotations,
-                timing_cues=scene.timing_cues,
-                max_draw_blocks=max_draw_blocks,
-                draw_blocks=resolved_draw_blocks,
-                block_overlap=block_overlap,
-                block_order=block_order,
-                block_sequence=block_sequence,
+                annotations=(
+                    scene.annotations
+                    if project.animation_preset == "block-speedpaint"
+                    else []
+                ),
+                timing_cues=(
+                    scene.timing_cues
+                    if project.animation_preset == "block-speedpaint"
+                    else []
+                ),
+                max_draw_blocks=project.max_draw_blocks,
+                draw_blocks=project.draw_blocks,
+                block_overlap=project.block_overlap,
+                block_order=project.block_order,
+                block_sequence=project.block_sequence,
+                block_fill_style=project.block_fill_style,
+                stroke_detail=project.stroke_detail,
+                line_thickness=project.line_thickness,
+                line_art_snap=project.line_art_snap,
+                line_art_snap_threshold=project.line_art_snap_threshold,
             )
         scene.render_fingerprint = render_fingerprint
         scene.video_path = scene_video
@@ -381,6 +584,58 @@ def _slug(value: str) -> str:
     return slug or "whiteboard-project"
 
 
+def _apply_visual_style(
+    scenes: list[Scene],
+    style: VisualStyle,
+    *,
+    theme: str | None = None,
+) -> None:
+    """Make every authored or generated scene prompt use one resolved recipe."""
+
+    for scene in scenes:
+        scene.image_prompt = build_storyboard_prompt(
+            scene.image_prompt,
+            style,
+            theme=theme,
+        )
+
+
+def _validate_animation_scene_metadata(
+    scenes: list[Scene],
+    animation_preset: str,
+) -> None:
+    """Fail before asset generation when classic cannot honor authored metadata."""
+
+    if animation_preset != "classic":
+        return
+    annotation_scenes = [scene.id for scene in scenes if scene.annotations]
+    authored_timing_scenes = [
+        scene.id
+        for scene in scenes
+        if scene.timing_cues and scene.timing_source != "provider"
+    ]
+    if not annotation_scenes and not authored_timing_scenes:
+        return
+
+    issues: list[str] = []
+    if annotation_scenes:
+        issues.append(
+            "positioned annotations in scene(s) "
+            + ", ".join(str(scene_id) for scene_id in annotation_scenes)
+        )
+    if authored_timing_scenes:
+        issues.append(
+            "authored drawing timing_cues in scene(s) "
+            + ", ".join(str(scene_id) for scene_id in authored_timing_scenes)
+        )
+    raise ValueError(
+        "animation_preset 'classic' cannot render "
+        + " or ".join(issues)
+        + ". Use --animation-preset block-speedpaint, or remove annotations/timing_cues "
+        "from the scene plan. Provider speech timings remain usable for subtitles."
+    )
+
+
 def _restore_explicit_scene_plan(
     resumed_scenes: list[Scene],
     planned_scenes: list[Scene],
@@ -391,7 +646,9 @@ def _restore_explicit_scene_plan(
         raise RuntimeError("Resumed project no longer matches the explicit scene plan")
     for resumed, planned in zip(resumed_scenes, planned_scenes, strict=True):
         if resumed.id != planned.id:
-            raise RuntimeError("Resumed project scene ids no longer match the scene plan")
+            raise RuntimeError(
+                "Resumed project scene ids no longer match the scene plan"
+            )
         resumed.narration = planned.narration
         resumed.image_prompt = planned.image_prompt
         resumed.annotations = list(planned.annotations)
@@ -411,30 +668,59 @@ def _render_fingerprint(
     lineart_path = scene.lineart_path or scene.image_path
     if lineart_path is None:
         raise RuntimeError(f"Scene {scene.id} has no line-art path")
+    hand_identity: dict[str, object] = {"style": str(hand_style)}
+    if str(hand_style) not in {
+        "asian",
+        "black",
+        "children",
+        "white",
+        "procedural",
+        "none",
+    }:
+        hand_path = Path(hand_style).expanduser()
+        if hand_path.is_file():
+            hand_identity["sha256"] = file_sha256(hand_path)
     return stable_fingerprint(
         {
-            "schema": 3,
+            "schema": 4,
             "annotations": [
                 annotation.model_dump(mode="json")
-                for annotation in scene.annotations
+                for annotation in (
+                    scene.annotations
+                    if project.animation_preset == "block-speedpaint"
+                    else []
+                )
             ],
             "timing_cues": [
                 cue.model_dump(mode="json", exclude_none=True)
-                for cue in scene.timing_cues
+                for cue in (
+                    scene.timing_cues
+                    if project.animation_preset == "block-speedpaint"
+                    else []
+                )
             ],
             "animation_preset": project.animation_preset,
+            "block_fill_style": project.block_fill_style,
             "block_order": project.block_order,
             "block_overlap": project.block_overlap,
             "block_sequence": project.block_sequence,
             "draw_blocks": project.draw_blocks,
-            "duration": max(2.0, float(scene.duration_sec or 4.0) + project.tail_color_seconds),
+            "duration": max(
+                2.0, float(scene.duration_sec or 4.0) + project.tail_color_seconds
+            ),
             "fps": project.fps,
             "hand_scale": hand_scale,
-            "hand_style": str(hand_style),
+            "hand": hand_identity,
             "lineart_sha256": file_sha256(lineart_path),
+            "line_art_snap": project.line_art_snap,
+            "line_art_snap_threshold": project.line_art_snap_threshold,
+            "line_thickness": project.line_thickness,
             "max_draw_blocks": project.max_draw_blocks,
             "resolution": project.resolution,
-            "source_sha256": file_sha256(scene.source_image_path) if scene.source_image_path else None,
+            "source_sha256": file_sha256(scene.source_image_path)
+            if scene.source_image_path
+            else None,
+            "stroke_detail": project.stroke_detail,
             "tail_color_seconds": project.tail_color_seconds,
         }
     )
@@ -444,7 +730,7 @@ def _scene_clip_duration(scene: Scene, tail_color_seconds: float, fps: int) -> f
     """Return the frame-aligned duration produced by the renderer."""
 
     nominal = max(2.0, float(scene.duration_sec or 4.0) + tail_color_seconds)
-    return max(1, int(round(nominal * fps))) / max(1, fps)
+    return max(1, round(nominal * fps)) / max(1, fps)
 
 
 def _subtitle_phrases(text: str, max_visible_chars: int = 18) -> list[str]:
@@ -503,7 +789,7 @@ def _estimated_subtitle_cues(scene: Scene, audible_duration: float) -> list[Timi
 def _srt_timestamp(seconds: float) -> str:
     """Format seconds as a rollover-safe SubRip timestamp."""
 
-    total_ms = max(0, int(round(seconds * 1000.0)))
+    total_ms = max(0, round(seconds * 1000.0))
     hours, remainder = divmod(total_ms, 3_600_000)
     minutes, remainder = divmod(remainder, 60_000)
     whole_seconds, milliseconds = divmod(remainder, 1000)

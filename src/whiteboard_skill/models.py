@@ -7,17 +7,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-STYLE_SUFFIX = (
-    ", warm hand-drawn storybook illustration on clean off-white paper, "
-    "expressive characters and meaningful props, simple readable composition, "
-    "two to four visually separated object clusters when the scene has multiple beats, "
-    "clear white space between clusters and no long ground line connecting them, "
-    "clean dark crayon-and-pencil outlines, flat crayon colors, subtle wax texture, "
-    "clear separated color regions, natural breathing room around subjects for optional tiny labels, "
-    "no text, no letters, no numbers, no logo, no watermark, no picture frame"
-)
+from .styles import DEFAULT_STYLE_ID, LEGACY_STYLE_SUFFIX
+
+# Kept as a public compatibility alias for third-party planners. New code uses
+# ``build_storyboard_prompt`` and a resolved ``VisualStyle`` instead.
+STYLE_SUFFIX = LEGACY_STYLE_SUFFIX
+CURRENT_PROJECT_SCHEMA_VERSION = 3
 
 
 class TextRole(str, Enum):
@@ -44,7 +41,9 @@ class Annotation(BaseModel):
         if not visible:
             raise ValueError("annotation text cannot be empty")
         if len(visible) > 12:
-            raise ValueError("annotation text must contain at most 12 visible characters")
+            raise ValueError(
+                "annotation text must contain at most 12 visible characters"
+            )
         return cleaned
 
 
@@ -115,7 +114,9 @@ class Scene(BaseModel):
                 raise ValueError("timing cues must be ordered and non-overlapping")
         explicit_targets = [cue.draw_to is not None for cue in cues]
         if any(explicit_targets) and not all(explicit_targets):
-            raise ValueError("timing cue draw_to must be provided for every cue or omitted for all")
+            raise ValueError(
+                "timing cue draw_to must be provided for every cue or omitted for all"
+            )
         if cues and all(explicit_targets):
             targets = [float(cue.draw_to or 0.0) for cue in cues]
             if any(
@@ -141,13 +142,18 @@ class Scene(BaseModel):
 class Project(BaseModel):
     """Whiteboard project state persisted under work/<project_id>/."""
 
-    schema_version: int = Field(default=2, ge=2)
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(default=CURRENT_PROJECT_SCHEMA_VERSION, ge=2)
     title: str
     planning_fingerprint: str | None = None
     voice: str = "zh-CN-XiaoxiaoNeural"
     tts_provider: str = "edge"
     image_model: str = "gpt-image-2"
     image_quality: str = "low"
+    visual_style_id: str = DEFAULT_STYLE_ID
+    visual_style_snapshot: dict[str, object] = Field(default_factory=dict)
+    visual_theme: str = ""
     scene_asset_mode: str = "color-to-lineart"
     lineart_provider: str = "auto"
     animation_preset: str = "block-speedpaint"
@@ -156,6 +162,11 @@ class Project(BaseModel):
     block_overlap: float = 0.16
     block_order: str = "reading"
     block_sequence: list[int] | None = None
+    block_fill_style: Literal["crayon", "clean", "soft-wash", "dry-brush"] = "crayon"
+    stroke_detail: Literal["balanced", "rich", "max"] = "rich"
+    line_thickness: int = Field(default=0, ge=0, le=16)
+    line_art_snap: bool = True
+    line_art_snap_threshold: int = Field(default=235, ge=1, le=254)
     fps: int = 60
     width: int = 1920
     height: int = 1080
@@ -164,7 +175,9 @@ class Project(BaseModel):
     subtitle_path: Path | None = None
     burn_subtitles: bool = False
     subtitle_font: str = "sans-serif"
-    subtitle_font_size: float = Field(default=16.0, ge=6.0, le=72.0, allow_inf_nan=False)
+    subtitle_font_size: float = Field(
+        default=16.0, ge=6.0, le=72.0, allow_inf_nan=False
+    )
     subtitle_margin_v: int = Field(default=22, ge=0, le=1000)
     subtitle_outline: float = Field(default=1.6, ge=0.0, le=10.0, allow_inf_nan=False)
     scenes: list[Scene] = Field(default_factory=list)
@@ -172,38 +185,53 @@ class Project(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def migrate_legacy_timing_state(cls, value: object) -> object:
-        """Make old audio-derived timing explicit instead of calling it authored."""
+        """Migrate timing provenance and pin legacy projects to the old visual style."""
 
         if not isinstance(value, dict):
             return value
         payload = dict(value)
-        try:
-            version = int(payload.get("schema_version", 1))
-        except (TypeError, ValueError):
-            version = 1
-        if version >= 2:
-            return payload
-
-        raw_scenes = payload.get("scenes")
-        if isinstance(raw_scenes, list):
-            migrated_scenes: list[object] = []
-            for raw_scene in raw_scenes:
-                if not isinstance(raw_scene, dict):
-                    migrated_scenes.append(raw_scene)
-                    continue
-                scene = dict(raw_scene)
-                has_audio_state = bool(scene.get("audio_fingerprint")) or (
-                    scene.get("audio_duration_sec") is not None
-                )
-                if "planned_duration_sec" not in scene:
-                    scene["planned_duration_sec"] = (
-                        0.0 if has_audio_state else scene.get("duration_sec")
+        raw_version = payload.get("schema_version", 1)
+        if type(raw_version) is not int or raw_version < 1:
+            raise ValueError("project schema_version must be a positive integer")
+        version = raw_version
+        if version > CURRENT_PROJECT_SCHEMA_VERSION:
+            raise ValueError(
+                "project schema_version "
+                f"{version} is newer than supported version "
+                f"{CURRENT_PROJECT_SCHEMA_VERSION}"
+            )
+        if version < 2:
+            raw_scenes = payload.get("scenes")
+            if isinstance(raw_scenes, list):
+                migrated_scenes: list[object] = []
+                for raw_scene in raw_scenes:
+                    if not isinstance(raw_scene, dict):
+                        migrated_scenes.append(raw_scene)
+                        continue
+                    scene = dict(raw_scene)
+                    has_audio_state = bool(scene.get("audio_fingerprint")) or (
+                        scene.get("audio_duration_sec") is not None
                     )
-                if scene.get("timing_cues") and "timing_source" not in scene:
-                    scene["timing_source"] = "unknown" if has_audio_state else "authored"
-                migrated_scenes.append(scene)
-            payload["scenes"] = migrated_scenes
-        payload["schema_version"] = 2
+                    if "planned_duration_sec" not in scene:
+                        scene["planned_duration_sec"] = (
+                            0.0 if has_audio_state else scene.get("duration_sec")
+                        )
+                    if scene.get("timing_cues") and "timing_source" not in scene:
+                        scene["timing_source"] = (
+                            "unknown" if has_audio_state else "authored"
+                        )
+                    migrated_scenes.append(scene)
+                payload["scenes"] = migrated_scenes
+        if version < 3:
+            payload.setdefault("visual_style_id", DEFAULT_STYLE_ID)
+            payload.setdefault("visual_style_snapshot", {})
+            payload.setdefault("visual_theme", "")
+            payload.setdefault("block_fill_style", "crayon")
+            payload.setdefault("stroke_detail", "rich")
+            payload.setdefault("line_thickness", 0)
+            payload.setdefault("line_art_snap", True)
+            payload.setdefault("line_art_snap_threshold", 235)
+            payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
         return payload
 
     @property

@@ -1,0 +1,33 @@
+{
+  "extends": "colored-pencil-diary",
+  "id": "custom-blue-pencil-travel-diary",
+  "name_zh": "蓝铅笔旅行日记",
+  "name_en": "Blue-pencil travel diary",
+  "family": "自定义彩铅叙事",
+  "summary": "松弛的蓝铅笔旅行速写，以少量暖橙强调人物动作和关键道具。",
+  "best_for": [
+    "旅行故事",
+    "城市散步",
+    "温和回忆"
+  ],
+  "aliases": [
+    "blue-travel-diary"
+  ],
+  "compatibility": "native",
+  "planner_guidance": "Stage each beat as one candid travel memory with complete people and two or three naturally separated props.",
+  "aesthetic": "Loose blue-pencil contours with visible pressure variation, a few dry colored-pencil fills, simple expressive faces, and broad untouched space.",
+  "paper": "Clean warm-white drawing paper without a photographed desk, page frame, ruling, or heavy grain.",
+  "palette": "Prussian blue and dusty cyan pencil with one restrained warm-orange accent, light tan skin tones, and much paper white.",
+  "avoid": "photorealism, glossy digital paint, smooth vector fills, dense scenery, generated writing, logos, gradients, cropped people or props",
+  "render": {
+    "block_fill_style": "dry-brush",
+    "stroke_detail": "rich",
+    "line_thickness": 0,
+    "line_art_snap": true,
+    "line_art_snap_threshold": 236,
+    "max_draw_blocks": 5,
+    "draw_blocks": 3,
+    "block_overlap": 0.18,
+    "block_order": "reading"
+  }
+}

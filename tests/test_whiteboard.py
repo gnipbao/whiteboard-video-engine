@@ -440,6 +440,42 @@ def test_annotation_cursor_tracks_active_glyph_and_stops_after_reveal():
     assert _annotation_cursor_pose(layout, 1.0) is None
 
 
+def test_block_fill_media_profiles_stay_local_and_deterministic():
+    source = Image.new("RGB", (40, 24), "white")
+    ImageDraw.Draw(source).rectangle((4, 4, 34, 19), fill=(190, 76, 52))
+    cache = whiteboard._prepare_crayon_fill_cache(source)
+    region = np.zeros((24, 40), dtype=np.float32)
+    region[:, :22] = 1.0
+
+    clean, _lead = whiteboard._block_fill_alpha(
+        0.55, cache, (4, 4, 35, 20), region, "clean"
+    )
+    repeated, _lead = whiteboard._block_fill_alpha(
+        0.55, cache, (4, 4, 35, 20), region, "clean"
+    )
+    dry_brush, _lead = whiteboard._block_fill_alpha(
+        0.55, cache, (4, 4, 35, 20), region, "dry-brush"
+    )
+
+    assert np.array_equal(clean, repeated)
+    assert np.max(clean[:, 22:]) == 0
+    assert not np.array_equal(clean, dry_brush)
+
+
+def test_block_fill_profile_rejects_mismatched_region_mask():
+    source = Image.new("RGB", (16, 12), "white")
+    cache = whiteboard._prepare_crayon_fill_cache(source)
+
+    with pytest.raises(ValueError, match="region mask"):
+        whiteboard._block_fill_alpha(
+            0.5,
+            cache,
+            (0, 0, 16, 12),
+            np.ones((11, 16), dtype=np.float32),
+            "clean",
+        )
+
+
 def test_annotation_font_stays_small_at_full_hd():
     layout = _layout_annotation(Annotation(text="水缸"), (1920, 1080))
 

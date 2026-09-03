@@ -45,11 +45,14 @@ class Settings:
     llm_model: str = "gpt-4.1-mini"
     image_model: str = "gpt-image-2"
     image_quality: str = "low"
+    visual_style: str = "warm-crayon-storybook"
     tts_provider: str = "edge"
     doubao_tts_api_key: str | None = None
     doubao_tts_app_id: str | None = None
     doubao_tts_access_key: str | None = None
-    doubao_tts_endpoint: str = "https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse"
+    doubao_tts_endpoint: str = (
+        "https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse"
+    )
     doubao_tts_resource_id: str = "seed-tts-2.0"
     doubao_tts_voice: str = "zh_female_vv_uranus_bigtts"
     doubao_tts_format: str = "mp3"
@@ -71,14 +74,17 @@ class Settings:
             llm_model=os.getenv("LLM_MODEL", "gpt-4.1-mini"),
             image_model=os.getenv("IMAGE_MODEL", "gpt-image-2"),
             image_quality=os.getenv("IMAGE_QUALITY", "low"),
+            visual_style=os.getenv("WHITEBOARD_STYLE", "warm-crayon-storybook"),
             tts_provider=os.getenv("TTS_PROVIDER", "edge"),
             doubao_tts_api_key=(
                 os.getenv("DOUBAO_TTS_API_KEY")
                 or os.getenv("DOUBAO_API_KEY")
                 or os.getenv("MODEL_SPEECH_API_KEY")
             ),
-            doubao_tts_app_id=os.getenv("DOUBAO_TTS_APP_ID") or os.getenv("DOUBAO_APP_ID"),
-            doubao_tts_access_key=os.getenv("DOUBAO_TTS_ACCESS_KEY") or os.getenv("DOUBAO_ACCESS_KEY"),
+            doubao_tts_app_id=os.getenv("DOUBAO_TTS_APP_ID")
+            or os.getenv("DOUBAO_APP_ID"),
+            doubao_tts_access_key=os.getenv("DOUBAO_TTS_ACCESS_KEY")
+            or os.getenv("DOUBAO_ACCESS_KEY"),
             doubao_tts_endpoint=os.getenv(
                 "DOUBAO_TTS_ENDPOINT",
                 "https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse",
@@ -88,7 +94,9 @@ class Settings:
                 or os.getenv("MODEL_SPEECH_TTS_RESOURCE_ID")
                 or "seed-tts-2.0"
             ),
-            doubao_tts_voice=os.getenv("DOUBAO_TTS_VOICE", "zh_female_vv_uranus_bigtts"),
+            doubao_tts_voice=os.getenv(
+                "DOUBAO_TTS_VOICE", "zh_female_vv_uranus_bigtts"
+            ),
             doubao_tts_format=os.getenv("DOUBAO_TTS_FORMAT", "mp3"),
             doubao_tts_sample_rate=_int_env("DOUBAO_TTS_SAMPLE_RATE", 24000),
             doubao_tts_speech_rate=_int_env("DOUBAO_TTS_SPEECH_RATE", 0),

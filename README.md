@@ -18,8 +18,30 @@
 - 内置固定角度手势：`asian`、`black`、`children`、`white`。
 - 支持多行中文自动排版、手写路径和逐行擦显。
 - 支持基于原图的轮廓感上色。
+- 内置 30 种以画材和制作方法命名的视觉风格，并按白板渲染适配度分级。
 - 支持豆包语音 2 词级时间戳驱动手绘节奏，并输出独立 SRT。
 - CLI 优先，方便脚本化、自动化和 Codex 集成。
+
++## 与参考项目的实现差异
+
+参考项目 [story-to-handdrawn-video](https://github.com/gnipbao/story-to-handdrawn-video)
+提供了很好的 Remotion 风格目录与分层演示。本引擎保留其适合白板的视觉语言，
+但把它升级成可批量生产的本地流水线：
+
+| 维度 | 参考项目 | 本引擎 |
+| --- | --- | --- |
+| 风格 | 20 个提示词风格 | 30 个版本化配方，含 `native/adaptive/experimental` 适配等级、别名、自动推荐和自定义继承 |
+| 手绘运动 | [LayerWipe](https://github.com/gnipbao/story-to-handdrawn-video/blob/main/src/LayerWipe.tsx) 用 `clip-path` 横向擦显位图层 | 从真实线稿提取笔画、排序路径，再按自然对象执行“大轮廓 → 细节 → 局部填色” |
+| 物体完整性 | 固定图层时间表 | 连通对象优先成组，独立物体才分块，不为凑块数硬切人物或道具 |
+| 图像链路 | 预制黑白、细节与彩图层 | GPT Image 2 只出彩图，同一彩图在本地抽线，线稿与最终色层像素配准 |
+| 叙事交付 | README 主流程为 3:4 静音 H.264 | 任意画幅，支持显式分镜、豆包语音 2、词级节奏、可编辑 SRT 与可选烧字 |
+| 可复用性 | 选择内置风格 | 行内方向或受限 JSON `extends`；风格快照、模型/模板、素材与渲染参数均参与分阶段缓存 |
+
+这不是把同一张图套 30 个名称：配方会同时进入分镜构图、生成提示词和实际
+渲染参数。纯渲染参数变化只重绘视频，不会无意义地重新调用分镜或图片 API。
+第三方风格只改写为通用画材语言，并保留 MIT 来源声明；不复制样图、笔刷或
+模型权重。
+
 
 ## 效果演示
 
@@ -140,6 +162,95 @@ whiteboard render-photo examples/cases/sports-illustration-anime2sketch/input.jp
   --color-fill contour-wipe
 ```
 
+## 视觉风格
+
+引擎内置 30 种版本化视觉配方。风格同时约束分镜提示词、纸面、线条、
+色板和少量安全的渲染参数；所选配方会写入项目快照和续跑指纹。风格名称只
+描述媒介、画材或构图方法，不以艺术家姓名命名。风格系统也不内嵌或在线
+下载第三方样图、参考板、笔刷包或纹理素材。
+
+白板适配等级的含义：
+
+- `native`：轮廓和色区天然适合当前抽线、逐笔绘制与对象分块流程。
+- `adaptive`：引擎会使用较柔和的线稿或填色参数；建议先看短预览。
+- `experimental`：密集纹理、黑色形块或弱轮廓会挑战骨架追踪，结果依赖具体画面。
+
+默认风格是 `warm-crayon-storybook`。`--style` 也接受序号、中文名、英文名
+和已注册别名。可用 `WHITEBOARD_STYLE` 设置默认内置风格，命令行选择优先。
+参考项目中的 `whiteboard-explainer`、`rawkid-crayon` 和
+`ms-paint-bad-doodle` 仍可作为兼容别名直接使用。
+
+| # | Style id | 中文名 | 适配等级 |
+| ---: | --- | --- | --- |
+| 1 | `warm-crayon-storybook` | 暖色蜡笔故事书（默认） | `native` |
+| 2 | `colored-pencil-diary` | 彩铅日记漫画 | `native` |
+| 3 | `clean-whiteboard` | 经典清爽白板 | `native` |
+| 4 | `minimal-line-explainer` | 极简黑白线条讲解 | `native` |
+| 5 | `marker-whiteboard` | 粗马克笔白板 | `native` |
+| 6 | `rough-diagram` | 手绘草图图解 | `native` |
+| 7 | `pressure-ink-notes` | 压感墨线笔记 | `native` |
+| 8 | `semantic-ink` | 语义钢笔线稿 | `native` |
+| 9 | `anime-graphite` | 动漫石墨线稿 | `native` |
+| 10 | `kid-crayon` | 儿童蜡笔坏画 | `adaptive` |
+| 11 | `raw-kid-crayon` | 潦草家庭蜡笔 | `adaptive` |
+| 12 | `bean-doodle-infographic` | 小豆人涂鸦信息图 | `native` |
+| 13 | `organic-contour-doodle` | 有机轮廓涂鸦 | `native` |
+| 14 | `naive-marker-notes` | 稚拙马克笔笔记 | `native` |
+| 15 | `notebook-pencil-doodle` | 铅笔课堂随记 | `native` |
+| 16 | `ballpoint-scribble` | 圆珠笔缠绕线速写 | `experimental` |
+| 17 | `inked-storybook` | 墨线淡彩绘本 | `native` |
+| 18 | `emotional-watercolor-sketch` | 情绪淡彩速写 | `adaptive` |
+| 19 | `ink-wash-minimal` | 水墨留白 | `adaptive` |
+| 20 | `retro-gouache-concept` | 中古动画水粉概念稿 | `adaptive` |
+| 21 | `nordic-gouache-storybook` | 北欧低饱和水粉绘本 | `adaptive` |
+| 22 | `sunlit-storybook` | 暖光童画绘本 | `adaptive` |
+| 23 | `warm-flat-storybook` | 暖色几何扁平绘本 | `experimental` |
+| 24 | `zine-riso-collage` | Zine 孔版拼贴 | `experimental` |
+| 25 | `manga-screentone` | 黑白漫画网点 | `experimental` |
+| 26 | `linocut-editorial` | 粗粝木刻社论 | `experimental` |
+| 27 | `blueprint-pencil` | 浅底蓝图铅笔 | `native` |
+| 28 | `editorial-portrait` | 编辑肖像线描 | `adaptive` |
+| 29 | `ms-paint-doodle` | 鼠标锯齿涂鸦 | `experimental` |
+| 30 | `real-crayon-paper` | 真实蜡笔纸感 | `adaptive` |
+
+查看完整元数据，或只看某一适配等级：
+
+```bash
+whiteboard list-styles
+whiteboard list-styles --compatibility native
+whiteboard list-styles --json
+```
+
+根据文案关键词在本地确定性推荐风格，不调用模型或网络：
+
+```bash
+whiteboard recommend-styles story.md --limit 5
+whiteboard recommend-styles story.md --json
+```
+
+直接选风格，或让引擎从文案自动选择第一推荐项：
+
+```bash
+whiteboard run story.md -o out/story.mp4 --style colored-pencil-diary
+whiteboard run story.md -o out/story.mp4 --style auto
+```
+
+也可以给一段行内风格描述，或加载继承内置配方的 JSON。`--style`、
+`--custom-style` 和 `--custom-style-file` 三者互斥；`--theme` 是可叠加的
+单个故事主题方向，不会改写底层生产安全约束。
+
+```bash
+whiteboard run story.md -o out/story.mp4 \
+  --custom-style "松弛的蓝色铅笔旅行速写，少量暖橙点色，大面积留白"
+
+whiteboard run story.md -o out/story.mp4 \
+  --custom-style-file examples/custom-style.example.json \
+  --theme "清晨、克制、带一点希望"
+```
+
+JSON 字段、来源说明和安全边界见
+[视觉风格来源与自定义说明](docs/visual-style-sources.md)。
+
 ## 命令行
 
 ```bash
@@ -147,6 +258,8 @@ whiteboard extract-lineart image.jpg -o lineart.png --provider auto
 whiteboard render-photo image.jpg -o output.mp4 --duration 15 --lineart-provider auto
 whiteboard render-image lineart.png -o output.mp4 --source-image image.jpg --source-fit exact
 whiteboard analyze-image lineart.png -o analysis.json --stroke-detail rich
+whiteboard list-styles
+whiteboard recommend-styles story.md
 whiteboard list-hands
 whiteboard doctor
 ```
@@ -204,22 +317,43 @@ whiteboard run story.md -o out/story.mp4 \
 场景数，优先于 `--scenes`；修改计划、彩图、声音或渲染参数后使用
 `--resume`，指纹会只重做受影响的阶段。
 
-常用参数：
+单图渲染参数（`render-photo` / `render-image`）：
 
-- `--stroke-detail balanced|rich|max`
+- `--stroke-detail balanced|rich|max`（默认 `rich`）
 - `--hand asian|black|children|white|procedural|none`（默认 `asian`）
-- `--line-thickness 0|N`（默认 `0`，根据线稿粗细自动适配；正整数为手动覆盖）
+- `--line-thickness 0|N`（默认 `0`；`0` 根据线稿粗细自动适配，正整数为手动覆盖）
+- `--block-fill-style crayon|clean|soft-wash|dry-brush`（默认 `crayon`）
 - `--draw-text "第一行\n第二行"` 或 `--draw-text-file caption.txt`
 - `--draw-text-position top|center|bottom`
 - `--draw-text-align left|center|right`
 - `--draw-text-reveal stroke|line-wipe`
 - `--draw-text-order before|after`
 - `--draw-text-width`、`--draw-text-max-height`、`--draw-text-line-spacing`、`--draw-text-font-size`、`--draw-text-font`
-- `--color-fill contour-wipe|brush-scan|top-down-blocks|fade`
+- `--color-fill contour-wipe|brush-scan|top-down-blocks|fade|left-to-right-gradient`
 - `--line-reveal stroke|detail-wipe`
 - `--base-line-opacity 0.0-1.0`
-- `--color-fill left-to-right-gradient`（从左向右柔边恢复原色）
-- `--lineart-provider auto|informative|anime2sketch`
+- `render-photo --lineart-provider auto|informative|anime2sketch|anime|manga`
+
+分镜规划与完整流水线风格参数（`plan-script` / `run`）：
+
+- `--style STYLE|auto`（内置风格、序号、名称、别名或自动推荐）
+- `--custom-style "..."` / `--custom-style-file style.json`（与 `--style` 互斥）
+- `--theme "..."`（叠加当前故事的美术方向）
+
+完整流水线渲染覆盖（仅 `run`）：
+
+- 未显式传入以下选项时，`run` 继承所选风格配方；这些选项用于逐项覆盖。
+- `--block-fill-style crayon|clean|soft-wash|dry-brush`
+- `--stroke-detail balanced|rich|max`
+- `--line-thickness 0|N`（`0` 为自动线宽）
+- `--line-art-snap` / `--no-line-art-snap`，以及 `--line-art-snap-threshold N`
+- `--max-draw-blocks N`、`--draw-blocks N`（`0` 表示自动分组）
+- `--block-overlap 0..0.65`、`--block-order reading|source`
+- `--block-sequence 1,0,...`（显式指定推断块顺序）
+- `--hand asian|black|children|white|procedural|none`（默认 `asian`）
+
+完整流水线音频与字幕参数（仅 `run`）：
+
 - `--tts-provider none|edge|doubao`（`none` 输出后期配音用的静默母版）
 - `--burn-subtitles`（把自动生成的同名 SRT 烧录进 `-o` MP4，同时保留 SRT）
 - `--subtitle-font`（默认 `sans-serif`）
@@ -357,8 +491,12 @@ examples/cases/<case-name>/
 
 不要提交模型仓库、模型权重、虚拟环境、生成过程目录，或没有分发授权的用户上传素材。
 
+视觉风格配方仅包含文字描述和数值参数；不内嵌第三方样图或笔刷。完整来源与
+命名原则见 [docs/visual-style-sources.md](docs/visual-style-sources.md)。
+
 少量精选演示素材可放在 `examples/cases/`。
 
 ## 许可证
 
-MIT。上游模型代码和权重遵循各自许可证。
+MIT。上游模型代码、权重与改编配方遵循各自许可证；保留的版权声明见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

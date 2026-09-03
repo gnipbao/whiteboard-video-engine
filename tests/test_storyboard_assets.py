@@ -10,12 +10,18 @@ from whiteboard_skill.image_gen import (
     use_precomputed_source_images,
 )
 from whiteboard_skill.models import Scene
+from whiteboard_skill.providers.lineart import (
+    ExternalCommandLineArt,
+    lineart_cache_identity,
+)
 
 
 class _ColorProvider:
     def generate(self, _prompt: str, out_path: Path, size: tuple[int, int]) -> Path:
         image = Image.new("RGB", size, "white")
-        ImageDraw.Draw(image).rectangle((12, 12, size[0] - 12, size[1] - 12), fill=(220, 90, 60))
+        ImageDraw.Draw(image).rectangle(
+            (12, 12, size[0] - 12, size[1] - 12), fill=(220, 90, 60)
+        )
         image.save(out_path)
         return out_path
 
@@ -28,7 +34,9 @@ class _LineArtProvider:
         self.calls += 1
         with Image.open(color_png) as source:
             image = Image.new("RGB", source.size, "white")
-        ImageDraw.Draw(image).rectangle((12, 12, image.width - 12, image.height - 12), outline="black", width=2)
+        ImageDraw.Draw(image).rectangle(
+            (12, 12, image.width - 12, image.height - 12), outline="black", width=2
+        )
         image.save(out_png)
         return out_png
 
@@ -52,7 +60,10 @@ def test_color_storyboard_then_registered_local_lineart(tmp_path: Path):
     assert scenes[0].source_image_path == tmp_path / "color" / "scene_01.png"
     assert scenes[0].lineart_path == tmp_path / "lineart" / "scene_01.png"
     assert scenes[0].image_path == scenes[0].lineart_path
-    with Image.open(scenes[0].source_image_path) as color, Image.open(scenes[0].lineart_path) as line:
+    with (
+        Image.open(scenes[0].source_image_path) as color,
+        Image.open(scenes[0].lineart_path) as line,
+    ):
         assert color.size == line.size
 
 
@@ -83,7 +94,10 @@ def test_precomputed_storyboard_is_normalized_before_registered_lineart(tmp_path
         (160, 90),
     )
 
-    with Image.open(scenes[0].source_image_path) as color, Image.open(scenes[0].lineart_path) as line:
+    with (
+        Image.open(scenes[0].source_image_path) as color,
+        Image.open(scenes[0].lineart_path) as line,
+    ):
         assert color.size == (160, 90)
         assert line.size == (160, 90)
 
@@ -164,13 +178,64 @@ def test_resume_invalidates_legacy_precomputed_normalization(tmp_path: Path):
 def test_lineart_resume_invalidates_when_registered_source_changes(tmp_path: Path):
     color_path = tmp_path / "color.png"
     Image.new("RGB", (96, 64), "red").save(color_path)
-    scene = Scene(id=1, narration="旁白", image_prompt="彩图", source_image_path=color_path)
+    scene = Scene(
+        id=1, narration="旁白", image_prompt="彩图", source_image_path=color_path
+    )
     provider = _LineArtProvider()
 
     extract_scene_lineart([scene], provider, tmp_path / "lineart", (96, 64))
-    extract_scene_lineart([scene], provider, tmp_path / "lineart", (96, 64), resume=True)
+    extract_scene_lineart(
+        [scene], provider, tmp_path / "lineart", (96, 64), resume=True
+    )
     assert provider.calls == 1
 
     Image.new("RGB", (96, 64), "blue").save(color_path)
-    extract_scene_lineart([scene], provider, tmp_path / "lineart", (96, 64), resume=True)
+    extract_scene_lineart(
+        [scene], provider, tmp_path / "lineart", (96, 64), resume=True
+    )
     assert provider.calls == 2
+
+
+def test_direct_lineart_generation_clears_resumed_color_source(tmp_path: Path):
+    stale_source = tmp_path / "stale-color.png"
+    Image.new("RGB", (96, 64), "red").save(stale_source)
+    scene = Scene(
+        id=1,
+        narration="旁白",
+        image_prompt="线稿",
+        source_image_path=stale_source,
+        lineart_source_fingerprint="stale-extraction",
+    )
+
+    generate_scene_images(
+        [scene],
+        _ColorProvider(),
+        tmp_path / "direct-lineart",
+        (96, 64),
+        asset_role="lineart",
+    )
+
+    assert scene.source_image_path is None
+    assert scene.lineart_source_fingerprint is None
+    assert scene.lineart_path == tmp_path / "direct-lineart" / "scene_01.png"
+
+
+def test_lineart_cache_identity_tracks_external_wrapper_content(tmp_path: Path):
+    wrapper = tmp_path / "extract.py"
+    wrapper.write_text("print('version one')\n", encoding="utf-8")
+    first = lineart_cache_identity(
+        ExternalCommandLineArt(
+            f"python3 {wrapper} {{input}} {{output}}",
+            "custom",
+        )
+    )
+
+    wrapper.write_text("print('version two')\n", encoding="utf-8")
+    second = lineart_cache_identity(
+        ExternalCommandLineArt(
+            f"python3 {wrapper} {{input}} {{output}}",
+            "custom",
+        )
+    )
+
+    assert first != second
